@@ -28,6 +28,10 @@ func TestConfigValidate(t *testing.T) {
 		{"no db host", func(c *Config) { c.Database.Leader.Host = "" }, "database"},
 		{"metrics on needs path", func(c *Config) { c.Metrics.Enabled = true; c.Metrics.Path = "" }, "metrics"},
 		{"metrics off ignores path", func(c *Config) { c.Metrics.Enabled = false; c.Metrics.Path = "" }, ""},
+		{"swagger on needs credentials", func(c *Config) { c.Swagger.Enabled = true }, "swagger"},
+		{"swagger on with credentials", func(c *Config) {
+			c.Swagger = SwaggerConfig{Enabled: true, Username: "u", Password: "p"}
+		}, ""},
 		{"tracing on needs endpoint", func(c *Config) { c.Tracing.Enabled = true; c.Tracing.Endpoint = "" }, "tracing"},
 		{"negative drain delay", func(c *Config) { c.Lifecycle.DrainDelay = -1 }, "lifecycle"},
 	}

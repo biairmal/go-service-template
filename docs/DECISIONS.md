@@ -14,3 +14,4 @@ Choices made where the SPEC was silent or unclear. One line each: `date · task 
 | 2026-11-05 | T0.4 | `apierr.WithRetryAfter` and the Retry-After header in `httpx.Handle` are left out; `Handle` passes through to `handler.Handle` | No reason here is a 429 or a lockout; they come back with a rate limiter |
 | 2026-11-05 | T0.4 | `Deps.Authz` is `authz.NewNoOp()` and `/v1/internal` has no service-token guard yet | The authorizer and the token checks arrive with auth (T1.1, T1.2); no module mounts a route yet |
 | 2026-11-05 | T0.4 | The architecture test stats every file under `internal/` before running `go list` | `go list` runs in a child process the test cache cannot see, so a new cross-module import otherwise passes on a cached result |
+| 2026-11-05 | T0.7 | `/swagger/*` is behind HTTP basic auth only; the token auth rule that makes it public is added with the `auth` block (T1.1) | There is no token auth yet, so no rule is needed until then |

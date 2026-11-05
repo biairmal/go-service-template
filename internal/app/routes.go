@@ -8,8 +8,11 @@ import (
 	"github.com/biairmal/go-sdk/lib/httpkit"
 	"github.com/biairmal/go-sdk/lib/httpkit/handler"
 	"github.com/go-chi/chi/v5"
+	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	httpSwagger "github.com/swaggo/http-swagger/v2"
 
+	_ "github.com/biairmal/go-service-template/api/swagger" // registers the generated spec with http-swagger
 	"github.com/biairmal/go-service-template/internal/platform/httpx"
 )
 
@@ -30,6 +33,10 @@ func (a *App) routes(r chi.Router, modules []Module, chain []func(http.Handler) 
 	r.Get("/healthz", httpkit.Health())
 	r.Get("/readyz", httpkit.Readiness(a.readiness))
 	r.Get("/version", httpkit.Version(a.cfg.Service.Version))
+	if a.cfg.Swagger.Enabled {
+		creds := map[string]string{a.cfg.Swagger.Username: a.cfg.Swagger.Password}
+		r.With(chimw.BasicAuth("swagger", creds)).Get("/swagger/*", httpSwagger.Handler())
+	}
 	if a.cfg.Metrics.Enabled {
 		r.Method(http.MethodGet, a.cfg.Metrics.Path, promhttp.HandlerFor(a.metrics, promhttp.HandlerOpts{}))
 	}

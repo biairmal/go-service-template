@@ -44,6 +44,11 @@ metrics:                                      # enabled + path + metrics.Config
   path: /metrics
   namespace: ${METRICS_NAMESPACE:app}
 
+swagger:
+  enabled: ${SWAGGER_ENABLED:false}           # serve API docs at /swagger/index.html behind basic auth
+  username: ${SWAGGER_USERNAME:}              # both required when enabled
+  password: ${SWAGGER_PASSWORD:}              # a secret outside local
+
 validator:
   field_name_tag: json
 
