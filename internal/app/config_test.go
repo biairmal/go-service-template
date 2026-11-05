@@ -37,6 +37,15 @@ func TestConfigValidate(t *testing.T) {
 		{"production with auth on", func(c *Config) { c.Service.Environment = EnvProduction; c.Auth.Enabled = true }, ""},
 		{"auth on needs jwks_url", func(c *Config) { c.Auth.Enabled = true; c.Auth.Local.JWKSURL = "" }, "auth"},
 		{"bad authz source", func(c *Config) { c.Authz.Source = "ldap" }, "authz"},
+		{"identity source needs client secret", func(c *Config) {
+			c.Auth.Enabled = true
+			c.Authz.Source = "identity"
+			c.Identity.ClientSecret = ""
+		}, "identity"},
+		{"identity source with auth off needs no secret", func(c *Config) {
+			c.Authz.Source = "identity"
+			c.Identity.ClientSecret = ""
+		}, ""},
 		{"bad tenancy mode", func(c *Config) { c.Tenancy.Mode = "shared" }, "tenancy"},
 		{"negative drain delay", func(c *Config) { c.Lifecycle.DrainDelay = -1 }, "lifecycle"},
 	}

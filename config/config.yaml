@@ -56,6 +56,10 @@ authz:                                        # go-sdk authz.Config; with auth o
   cache_ttl: 1m                               # how long a tenant's role map stays fresh
   roles: {}                                   # used by source: config
 
+identity:                                     # this service as one of identity's modules.auth.service_clients
+  client_id: ${IDENTITY_CLIENT_ID:note-service}
+  client_secret: ${IDENTITY_CLIENT_SECRET:}   # a secret; required when auth is on and authz.source is identity
+
 tenancy:
   mode: ${TENANCY_MODE:single}                # must match identity's modules.tenant.mode
 

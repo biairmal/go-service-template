@@ -23,6 +23,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 
+	"github.com/biairmal/go-service-template/internal/platform/clock"
 	"github.com/biairmal/go-service-template/internal/platform/database"
 	"github.com/biairmal/go-service-template/migrations"
 )
@@ -93,8 +94,15 @@ func New(ctx context.Context, cfg *Config, log logger.Logger) (*App, error) {
 
 // newAuthorizer builds the permission checker modules get in Deps.Authz.
 // With auth off, LoadConfig has already switched it to the dev admin role map.
+// With source identity, role maps are fetched with a service token from the
+// identity block's client credentials.
 func newAuthorizer(cfg *Config, log logger.Logger) (authz.Authorizer, error) {
-	return authz.New(&cfg.Authz, authz.WithLogger(log))
+	opts := []authz.Option{authz.WithLogger(log)}
+	if cfg.Authz.Source == authz.SourceIdentity {
+		st := newServiceToken(cfg.Authz.IdentityURL, cfg.Identity, http.DefaultClient, clock.System{})
+		opts = append(opts, authz.WithServiceToken(st.Token))
+	}
+	return authz.New(&cfg.Authz, opts...)
 }
 
 // middlewareChain is the shared middleware, outermost first.
