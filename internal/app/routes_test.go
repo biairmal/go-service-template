@@ -72,3 +72,39 @@ func TestUnknownRoutesUseErrorEnvelope(t *testing.T) {
 		}
 	}
 }
+
+func TestSwaggerNeedsBasicAuth(t *testing.T) {
+	a := &App{cfg: Config{Swagger: SwaggerConfig{Enabled: true, Username: "u", Password: "p"}}}
+	r := a.routes(chi.NewRouter(), nil, nil)
+	for _, tc := range []struct {
+		name, path, user, pass string
+		status                 int
+	}{
+		{"no credentials", "/swagger/index.html", "", "", http.StatusUnauthorized},
+		{"wrong password", "/swagger/index.html", "u", "x", http.StatusUnauthorized},
+		{"right credentials", "/swagger/index.html", "u", "p", http.StatusOK},
+		{"spec with credentials", "/swagger/doc.json", "u", "p", http.StatusOK},
+	} {
+		req := httptest.NewRequest(http.MethodGet, tc.path, http.NoBody)
+		if tc.user != "" {
+			req.SetBasicAuth(tc.user, tc.pass)
+		}
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code != tc.status {
+			t.Errorf("%s: status = %d, want %d", tc.name, rec.Code, tc.status)
+		}
+		if tc.status == http.StatusUnauthorized && rec.Header().Get("WWW-Authenticate") == "" {
+			t.Errorf("%s: no WWW-Authenticate challenge", tc.name)
+		}
+	}
+}
+
+func TestSwaggerOffIs404(t *testing.T) {
+	r := (&App{}).routes(chi.NewRouter(), nil, nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/swagger/index.html", http.NoBody))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("/swagger/index.html with swagger off = %d, want 404", rec.Code)
+	}
+}

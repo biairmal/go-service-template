@@ -17,6 +17,18 @@ const (
 	configFile = "config/config.yaml"
 )
 
+// General API info for swag (make swagger).
+//
+//	@title			go-service-template API
+//	@version		1.0
+//	@description	A resource service that trusts go-identity's tokens.
+//	@BasePath		/
+//
+//	@securityDefinitions.apikey	BearerAuth
+//	@in							header
+//	@name						Authorization
+//	@description				"Bearer" followed by a space and an access token from go-identity.
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)

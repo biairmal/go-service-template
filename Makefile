@@ -3,9 +3,11 @@
 COMPOSE := docker compose -f deploy/compose/docker-compose.yaml
 COVERAGE_OUT := out/coverage.out
 BIN := bin/server
+SWAG := go run github.com/swaggo/swag/cmd/swag@v1.16.6
+SWAGGER_DIR := api/swagger
 
 .DEFAULT_GOAL := help
-.PHONY: help up down run build test test-integration lint format format-check coverage vulncheck check \
+.PHONY: help up down run build swagger test test-integration lint format format-check coverage vulncheck check \
 	migrate-up migrate-down migrate-create
 
 help: ## Show targets
@@ -17,10 +19,13 @@ up: ## Start the local stack (Postgres)
 down: ## Stop the local stack
 	$(COMPOSE) down
 
-build: ## Build bin/server
+swagger: ## Generate Swagger docs from handler annotations into api/swagger
+	$(SWAG) init -g cmd/server/main.go -o $(SWAGGER_DIR) --packageName swagger --outputTypes go,json --parseDependency --parseInternal
+
+build: swagger ## Generate Swagger docs, then build bin/server
 	go build -o $(BIN) ./cmd/server
 
-run: ## Run the API against the local stack
+run: swagger ## Generate Swagger docs, then run the API against the local stack
 	go run ./cmd/server serve
 
 test: ## Unit tests

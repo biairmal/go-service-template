@@ -21,3 +21,4 @@ Choices made where the SPEC was silent or unclear. One line each: `date · task 
 | 2026-11-05 | T0.5 | `scope.Owner` replaces go-identity's `scope.User`; `Session` is left out | Both read the token subject as a UUID, so keeping both would be two names for one value; refresh sessions are identity's |
 | 2026-11-05 | T0.5 | `scope.Owner` reads the subject from the token claims (`auth.SubjectFromContext`), not `ctxkit.UserID` | `Tenant` already reads from the claims, and the dev claims with auth off (T1.1) only need to put claims in the context |
 | 2026-11-05 | T0.5 | `OwnerFilter` returns `[]repository.FilterCondition` (empty when the caller holds the `:any` permission) | Appends straight onto `ListOptions.Filter.Conditions` with no branch at the call site |
+| 2026-11-05 | T0.7 | `/swagger/*` is behind HTTP basic auth only; the token auth rule that makes it public is added with the `auth` block (T1.1) | There is no token auth yet, so no rule is needed until then |
