@@ -1,0 +1,32 @@
+// Tails the stdout of this Compose project's containers into Loki, labelled
+// by Compose service. trace_id stays in the JSON line (not a label: unbounded
+// cardinality); Grafana links it to Tempo.
+discovery.docker "project" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "5s" // pick up containers recreated by a deploy quickly
+  filter {
+    name   = "label"
+    values = ["com.docker.compose.project=" + sys.env("COMPOSE_PROJECT")]
+  }
+}
+
+discovery.relabel "project" {
+  targets = []
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+}
+
+loki.source.docker "project" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.project.targets
+  relabel_rules = discovery.relabel.project.rules
+  forward_to    = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
