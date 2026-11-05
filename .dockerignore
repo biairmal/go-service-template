@@ -1,0 +1,13 @@
+# Build context: only what `go build` and the image need.
+.git
+.github
+bin
+out
+deploy
+docs
+*.md
+.env
+.env.*
+keys
+go.work
+go.work.sum

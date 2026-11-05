@@ -25,7 +25,7 @@ go-sdk `authz` and scopes every query by tenant and owner. It is built on
 ## Commands
 
 ```bash
-make up                # Postgres via Compose
+make up                # whole stack via Compose (Postgres, api, worker, Caddy, backup)
 make run               # serve against it
 make check             # CI gate: format-check, lint, unit tests, coverage, vulncheck (must pass)
 make test              # go test -short ./...

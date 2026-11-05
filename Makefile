@@ -5,19 +5,27 @@ COVERAGE_OUT := out/coverage.out
 BIN := bin/server
 SWAG := go run github.com/swaggo/swag/cmd/swag@v1.16.6
 SWAGGER_DIR := api/swagger
+IMAGE := ghcr.io/biairmal/go-service-template
+GIT_SHA := $(shell git rev-parse --short HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help up down run build swagger test test-integration lint format format-check coverage vulncheck check \
+.PHONY: help up up-obs down image run build swagger test test-integration lint format format-check coverage vulncheck check \
 	migrate-up migrate-down migrate-create
 
 help: ## Show targets
 	@grep -E "^[a-z-]+:.*## " Makefile | sed -e "s/:.*## /\t/"
 
-up: ## Start the local stack (Postgres)
-	$(COMPOSE) up -d --wait
+up: ## Build the image and start the stack: Postgres, migrate, api, worker, Caddy (https://localhost), backup
+	$(COMPOSE) up -d --build --wait
 
-down: ## Stop the local stack
-	$(COMPOSE) down
+up-obs: ## make up plus Prometheus, Grafana (localhost:3000), Loki and Tempo, with tracing on
+	TRACING_ENABLED=true $(COMPOSE) --profile obs up -d --build --wait
+
+down: ## Stop the stack (every profile)
+	$(COMPOSE) --profile obs down
+
+image: swagger ## Generate Swagger docs, then build the image tagged with the git SHA
+	docker build --build-arg SERVICE_VERSION=$(GIT_SHA) -t $(IMAGE):$(GIT_SHA) .
 
 swagger: ## Generate Swagger docs from handler annotations into api/swagger
 	$(SWAG) init -g cmd/server/main.go -o $(SWAGGER_DIR) --packageName swagger --outputTypes go,json --parseDependency --parseInternal

@@ -8,7 +8,7 @@ module.
 
 ```bash
 cp .env.example .env
-make up      # Postgres in Docker
+make up      # Postgres, api, worker and Caddy (https://localhost) in Docker
 make run     # http://localhost:8080
 curl localhost:8080/healthz
 curl localhost:8080/readyz

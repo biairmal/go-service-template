@@ -1,18 +1,47 @@
-# Local development (`make up`/`make down`): just Postgres. On first start the
-# init script runs deploy/sql/bootstrap.sql, which creates the `app` schema and
-# the `app` role the service connects as.
+# The whole stack: Postgres, migrate, api, worker, Caddy and a daily backup.
+#
+# Local (`make up`): builds the image from this checkout and runs it with the
+# config.yaml defaults (auth off, dev claims). `make run` still works next to
+# it: the api container is reached through Caddy only, so host port 8080 stays
+# free. `make up-obs` adds Prometheus, Grafana, Loki and Tempo.
+#
+# VPS: copy .env.example to .env next to this file, then
+# `docker compose pull && docker compose up -d`. `migrate` runs first each
+# time; `api` and `worker` wait for it. Caddy terminates TLS for DOMAIN.
+#
+# On first start the Postgres init script runs deploy/sql/bootstrap.sql, which
+# creates the `app` schema and the `app` role the service connects as.
 name: go-service-template
+
+x-app: &app
+  image: ${IMAGE:-ghcr.io/biairmal/go-service-template}:${IMAGE_TAG:-main}
+  build:
+    context: ../..
+    args:
+      SERVICE_VERSION: ${SERVICE_VERSION:-dev}
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    DB_HOST: postgres
+    TRACING_ENABLED: ${TRACING_ENABLED:-false}
+    OTEL_ENDPOINT: tempo:4317
+  read_only: true
+  tmpfs: [/tmp]
+  restart: unless-stopped
 
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: app
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       APP_DB_PASSWORD: ${DB_PASSWORD:-app}
     ports:
-      - "${DB_PORT:-5432}:5432"
+      # Loopback only: `make run` and psql reach it from the host, the internet doesn't.
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./initdb:/docker-entrypoint-initdb.d:ro
@@ -23,5 +52,136 @@ services:
       timeout: 3s
       retries: 30
 
+  migrate:
+    <<: *app
+    command: ["migrate", "up"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *app
+    command: ["serve"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    <<: *app
+    command: ["worker"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      - api
+
+  # Daily pg_dump into the `backups` volume (docs/runbooks/backup-restore.md).
+  # Same image as `postgres`, so pg_dump's version always matches the server.
+  # Runs as the `postgres` superuser so the dump holds the whole `app` database
+  # (schema, the pgcrypto extension marker), not just what the `app` role owns.
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      PGHOST: postgres
+      PGUSER: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      PGDATABASE: app
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-7}
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        while true; do
+          pg_dump -Fc -f "/backups/app-$$(date +%Y%m%d-%H%M%S).dump"
+          find /backups -name '*.dump' -mtime "+$$BACKUP_KEEP_DAYS" -exec rm -f {} +
+          sleep 86400
+        done
+    volumes:
+      - backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # --- Profile obs: metrics, logs and traces, linked in Grafana (localhost:3000).
+  # The api sends traces to Tempo when TRACING_ENABLED=true (`make up-obs` sets it).
+
+  prometheus:
+    profiles: [obs]
+    image: prom/prometheus:v3.5.0
+    restart: unless-stopped
+    volumes:
+      - ./obs/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+  tempo:
+    profiles: [obs]
+    image: grafana/tempo:2.6.1
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./obs/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo_data:/var/tempo
+
+  loki:
+    profiles: [obs]
+    image: grafana/loki:3.5.3
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    volumes:
+      - ./obs/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki_data:/loki
+
+  # Ships this project's container logs (stdout JSON) to Loki.
+  alloy:
+    profiles: [obs]
+    image: grafana/alloy:v1.10.2
+    restart: unless-stopped
+    command: ["run", "/etc/alloy/config.alloy", "--storage.path=/var/lib/alloy/data"]
+    environment:
+      COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME}
+    volumes:
+      - ./obs/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+
+  grafana:
+    profiles: [obs]
+    image: grafana/grafana:12.1.1
+    restart: unless-stopped
+    environment:
+      # Local convenience: anonymous admin. On a VPS, set GF_SECURITY_ADMIN_PASSWORD
+      # and drop these two lines before publishing the port.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - ./obs/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - tempo
+      - loki
+
 volumes:
   pgdata:
+  caddy_data:
+  backups:
+  prometheus_data:
+  tempo_data:
+  loki_data:
+  grafana_data:
