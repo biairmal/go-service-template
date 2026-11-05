@@ -1,5 +1,6 @@
-// Package testkit holds the helpers every integration test shares, starting
-// with a migrated Postgres per test package. Import it from tests only.
+// Package testkit holds the helpers every integration test shares: a migrated
+// Postgres per test package, a controllable clock, an HTTP test server with
+// JSON helpers, and test signing keys behind a JWKS. Import it from tests only.
 package testkit
 
 import (
