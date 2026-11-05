@@ -23,7 +23,7 @@ func TestOpsEndpointsWithoutDatabase(t *testing.T) {
 		Metrics: MetricsConfig{Enabled: true, Path: "/metrics"},
 	}
 	a := &App{cfg: cfg, metrics: newRegistry()}
-	h := a.routes(chi.NewRouter(), middlewareChain(&cfg, logger.NewNoOp(), tracer.NewNoOp(), metrics.NewNoOp()))
+	h := a.routes(chi.NewRouter(), nil, middlewareChain(&cfg, logger.NewNoOp(), tracer.NewNoOp(), metrics.NewNoOp()))
 
 	tests := []struct {
 		name, method, path string

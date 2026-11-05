@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"sync/atomic"
 
+	"github.com/biairmal/go-sdk/lib/authz"
 	"github.com/biairmal/go-sdk/lib/ctxkit"
 	"github.com/biairmal/go-sdk/lib/httpkit/middleware"
 	"github.com/biairmal/go-sdk/lib/lifecycle"
@@ -17,6 +18,7 @@ import (
 	"github.com/biairmal/go-sdk/lib/metrics"
 	"github.com/biairmal/go-sdk/lib/sqlkit"
 	"github.com/biairmal/go-sdk/lib/tracer"
+	"github.com/biairmal/go-sdk/lib/validator"
 	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
@@ -66,7 +68,15 @@ func New(ctx context.Context, cfg *Config, log logger.Logger) (*App, error) {
 		return nil, err
 	}
 
-	a.handler = a.routes(chi.NewRouter(), middlewareChain(cfg, log, tr, rec))
+	deps := Deps{
+		DB: db, Log: log, V: validator.New(cfg.Validator), Authz: authz.NewNoOp(), Outbox: database.NewOutbox(db),
+	}
+	modules, err := buildModules(&a.cfg, &deps)
+	if err != nil {
+		a.close(ctx)
+		return nil, err
+	}
+	a.handler = a.routes(chi.NewRouter(), modules, middlewareChain(cfg, log, tr, rec))
 	return a, nil
 }
 
