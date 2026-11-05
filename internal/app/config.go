@@ -32,6 +32,7 @@ type Config struct {
 	Database  sqlkit.Config    `mapstructure:"database"`
 	Auth      AuthConfig       `mapstructure:"auth"`
 	Authz     authz.Config     `mapstructure:"authz"`
+	Identity  IdentityConfig   `mapstructure:"identity"`
 	Tenancy   TenancyConfig    `mapstructure:"tenancy"`
 	Tracing   TracingConfig    `mapstructure:"tracing"`
 	Metrics   MetricsConfig    `mapstructure:"metrics"`
@@ -65,6 +66,14 @@ type CORSConfig struct {
 type AuthConfig struct {
 	Enabled     bool `mapstructure:"enabled"`
 	auth.Config `mapstructure:",squash"`
+}
+
+// IdentityConfig is this service registered as one of identity's
+// modules.auth.service_clients. With authz source identity, the credentials
+// buy the service token that reads tenants' role maps.
+type IdentityConfig struct {
+	ClientID     string `mapstructure:"client_id"`
+	ClientSecret string `mapstructure:"client_secret"`
 }
 
 // Tenancy modes for TenancyConfig.Mode.
@@ -115,6 +124,7 @@ func (c *Config) sections() []section {
 		{"database", c.Database.Validate},
 		{"auth", c.validateAuth},
 		{"authz", c.Authz.Validate},
+		{"identity", c.validateIdentity},
 		{"tenancy", c.Tenancy.validate},
 		{"tracing", c.validateTracing},
 		{"metrics", c.validateMetrics},
@@ -164,6 +174,16 @@ func (c *Config) validateAuth() error {
 		return nil
 	}
 	return c.Auth.Validate()
+}
+
+func (c *Config) validateIdentity() error {
+	if !c.Auth.Enabled || c.Authz.Source != authz.SourceIdentity {
+		return nil
+	}
+	if c.Identity.ClientID == "" || c.Identity.ClientSecret == "" {
+		return errorz.BadRequest().WithMessage("client_id and client_secret are required when authz.source is identity")
+	}
+	return nil
 }
 
 func (t TenancyConfig) validate() error {
