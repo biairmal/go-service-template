@@ -46,6 +46,7 @@ func TestConfigValidate(t *testing.T) {
 			c.Authz.Source = "identity"
 			c.Identity.ClientSecret = ""
 		}, ""},
+		{"note list size over 100", func(c *Config) { c.Modules.Note.ListMaxSize = 101 }, "modules.note"},
 		{"bad tenancy mode", func(c *Config) { c.Tenancy.Mode = "shared" }, "tenancy"},
 		{"negative drain delay", func(c *Config) { c.Lifecycle.DrainDelay = -1 }, "lifecycle"},
 	}

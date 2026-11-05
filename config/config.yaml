@@ -63,6 +63,10 @@ identity:                                     # this service as one of identity'
 tenancy:
   mode: ${TENANCY_MODE:single}                # must match identity's modules.tenant.mode
 
+modules:
+  note:                                       # note.Config
+    list_max_size: 100                        # cap on GET /v1/notes ?size, at most 100
+
 tracing:                                      # enabled + tracer.Config
   enabled: ${TRACING_ENABLED:false}
   endpoint: ${OTEL_ENDPOINT:localhost:4317}
