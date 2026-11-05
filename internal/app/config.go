@@ -14,6 +14,8 @@ import (
 	"github.com/biairmal/go-sdk/lib/sqlkit"
 	"github.com/biairmal/go-sdk/lib/tracer"
 	"github.com/biairmal/go-sdk/lib/validator"
+
+	"github.com/biairmal/go-service-template/internal/module/note"
 )
 
 // Environments for ServiceConfig.Environment.
@@ -34,6 +36,7 @@ type Config struct {
 	Authz     authz.Config     `mapstructure:"authz"`
 	Identity  IdentityConfig   `mapstructure:"identity"`
 	Tenancy   TenancyConfig    `mapstructure:"tenancy"`
+	Modules   ModulesConfig    `mapstructure:"modules"`
 	Tracing   TracingConfig    `mapstructure:"tracing"`
 	Metrics   MetricsConfig    `mapstructure:"metrics"`
 	Swagger   SwaggerConfig    `mapstructure:"swagger"`
@@ -74,6 +77,11 @@ type AuthConfig struct {
 type IdentityConfig struct {
 	ClientID     string `mapstructure:"client_id"`
 	ClientSecret string `mapstructure:"client_secret"`
+}
+
+// ModulesConfig holds one block per business module.
+type ModulesConfig struct {
+	Note note.Config `mapstructure:"note"`
 }
 
 // Tenancy modes for TenancyConfig.Mode.
@@ -126,6 +134,7 @@ func (c *Config) sections() []section {
 		{"authz", c.Authz.Validate},
 		{"identity", c.validateIdentity},
 		{"tenancy", c.Tenancy.validate},
+		{"modules.note", c.Modules.Note.Validate},
 		{"tracing", c.validateTracing},
 		{"metrics", c.validateMetrics},
 		{"swagger", c.validateSwagger},

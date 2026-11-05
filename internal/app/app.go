@@ -82,13 +82,8 @@ func New(ctx context.Context, cfg *Config, log logger.Logger) (*App, error) {
 	deps := Deps{
 		DB: db, Log: log, V: validator.New(cfg.Validator), Authz: az, Outbox: database.NewOutbox(db),
 	}
-	modules, err := buildModules(&a.cfg, &deps)
-	if err != nil {
-		a.close(ctx)
-		return nil, err
-	}
 	chain := append(middlewareChain(cfg, log, tr, rec), authMW)
-	a.handler = a.routes(chi.NewRouter(), modules, chain)
+	a.handler = a.routes(chi.NewRouter(), buildModules(&a.cfg, &deps), chain)
 	return a, nil
 }
 

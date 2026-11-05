@@ -6,6 +6,7 @@ import (
 	"github.com/biairmal/go-sdk/lib/sqlkit"
 	"github.com/biairmal/go-sdk/lib/validator"
 
+	"github.com/biairmal/go-service-template/internal/module/note"
 	"github.com/biairmal/go-service-template/internal/platform/database"
 	"github.com/biairmal/go-service-template/internal/platform/httpx"
 )
@@ -30,6 +31,8 @@ type Module interface {
 
 // buildModules constructs every module, in the order their routes are
 // registered. Adding a module adds one entry here.
-func buildModules(*Config, *Deps) ([]Module, error) {
-	return nil, nil
+func buildModules(cfg *Config, deps *Deps) []Module {
+	return []Module{
+		note.New(cfg.Modules.Note, note.Deps{DB: deps.DB, V: deps.V, Authz: deps.Authz}),
+	}
 }

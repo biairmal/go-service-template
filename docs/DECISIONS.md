@@ -33,3 +33,8 @@ Choices made where the SPEC was silent or unclear. One line each: `date · task 
 | 2026-11-05 | T2.1 | `status` is checked by a `CHECK (status IN ('draft', 'archived'))` constraint | The database rejects a bad status even from a path that skips the service |
 | 2026-11-05 | T2.1 | `Get` reads the leader, not a follower | `Update` calls it to tell a version conflict from a miss, and a client often reads right after its own write; lists still use `GetReadConnection` |
 | 2026-11-05 | T2.1 | `NewRepository(db)` takes no logger (SPEC 1.6 shows `db, log`) | The repository returns errors and logs nothing; go-identity's repositories have the same signature |
+| 2026-11-05 | T2.2 | A body naming `owner_id` or `tenant_id` is a 400 (`meta.fields`: unknown field), not silently ignored | The strict decoder rejects unknown fields; the owner and tenant always come from the token |
+| 2026-11-05 | T2.2 | `Service` is a concrete struct and `note.New` returns `*Module` with no error (SPEC 1.6 shows a `Service` interface and `(*Module, error)`) | Handler tests run the real service over a mocked repository, so nothing needs a second service implementation; the config is validated at startup in `modules.note` |
+| 2026-11-05 | T2.2 | Request bodies are validated in the handler; the service trusts its typed inputs | The plan puts validation in the handler step; the `CHECK` on `status` still guards the table |
+| 2026-11-05 | T2.2 | `PATCH` with no field set is a 400 | It would only bump the version |
+| 2026-11-05 | T2.2 | `modules.note.list_max_size` must be 1–100 | go-sdk's repository caps a page at 100, so a larger value would be silently cut |
