@@ -22,7 +22,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "The caller's notes, or the tenant's with notes:read:any. Needs notes:read or notes:read:any.",
+                "description": "The caller's notes, or the tenant's with notes:read:any. Needs notes:read or notes:read:any.\nFilters: field=value, or title=value%3Blike for contains (the ; must be percent-encoded).\nSortable: title, status, pinned, created_at, updated_at; default updated_at,DESC.",
                 "produces": [
                     "application/json"
                 ],
@@ -42,6 +42,58 @@ const docTemplate = `{
                         "description": "Page size, max modules.note.list_max_size",
                         "name": "size",
                         "in": "query"
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "field,ASC|DESC; repeatable",
+                        "name": "sort",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Exact title, or value%3Blike for contains (case-sensitive)",
+                        "name": "title",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "draft or archived",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "true or false",
+                        "name": "pinned",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "One owner's notes; needs notes:read:any",
+                        "name": "owner_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Title or body contains, case-insensitive",
+                        "name": "search",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "created_at \u003e= this; RFC 3339 date or timestamp",
+                        "name": "created_from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "created_at \u003c this; RFC 3339 date or timestamp",
+                        "name": "created_to",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -52,7 +104,7 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Invalid query",
+                        "description": "Unknown key, disallowed sort or filter, bad value or range",
                         "schema": {
                             "$ref": "#/definitions/response.BaseResponse-any"
                         }
@@ -64,7 +116,7 @@ const docTemplate = `{
                         }
                     },
                     "403": {
-                        "description": "No notes:read or notes:read:any",
+                        "description": "No read permission, or owner_id without notes:read:any",
                         "schema": {
                             "$ref": "#/definitions/response.BaseResponse-any"
                         }
