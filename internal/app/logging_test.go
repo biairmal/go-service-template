@@ -28,7 +28,7 @@ func TestLogLinesAreJSONWithRequestID(t *testing.T) {
 	lines := captureStdout(t, func() {
 		log := NewLogger(&cfg)
 		a := &App{cfg: cfg}
-		h := a.routes(chi.NewRouter(), middlewareChain(&cfg, log, tracer.NewNoOp(), metrics.NewNoOp()))
+		h := a.routes(chi.NewRouter(), nil, middlewareChain(&cfg, log, tracer.NewNoOp(), metrics.NewNoOp()))
 		r := httptest.NewRequest(http.MethodPost, "/v1/nope", strings.NewReader(`{"email":"bia@example.com"}`))
 		r.Header.Set("X-Request-Id", "req-log-test")
 		h.ServeHTTP(httptest.NewRecorder(), r)

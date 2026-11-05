@@ -1,0 +1,35 @@
+package app
+
+import (
+	"github.com/biairmal/go-sdk/lib/authz"
+	"github.com/biairmal/go-sdk/lib/logger"
+	"github.com/biairmal/go-sdk/lib/sqlkit"
+	"github.com/biairmal/go-sdk/lib/validator"
+
+	"github.com/biairmal/go-service-template/internal/platform/database"
+	"github.com/biairmal/go-service-template/internal/platform/httpx"
+)
+
+// Deps are the shared dependencies handed to every module's New.
+type Deps struct {
+	DB  *sqlkit.DB
+	Log logger.Logger
+	V   validator.Validator
+	// Authz answers permission checks for the caller in the request context.
+	Authz  authz.Authorizer
+	Outbox *database.Outbox
+}
+
+// Module is a feature boundary. internal/app only sees this: it builds each
+// module with New(cfg, deps) and mounts its routes. Modules never import each
+// other; when one needs another's data it declares a port and app wires an
+// adapter.
+type Module interface {
+	Register(rt *httpx.Routes)
+}
+
+// buildModules constructs every module, in the order their routes are
+// registered. Adding a module adds one entry here.
+func buildModules(*Config, *Deps) ([]Module, error) {
+	return nil, nil
+}
