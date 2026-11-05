@@ -3,9 +3,10 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
+
+	"github.com/biairmal/go-sdk/lib/logger"
 
 	"github.com/biairmal/go-service-template/internal/app"
 )
@@ -26,7 +27,10 @@ func main() {
 func run(args []string) error {
 	cmd := "serve"
 	if len(args) > 0 {
-		cmd = args[0]
+		cmd, args = args[0], args[1:]
+	}
+	if cmd == "migrate" && len(args) > 0 && args[0] == "create" {
+		return migrateCreate(args[1:]) // needs no config or database
 	}
 	cfg, err := app.LoadConfig(envFile, configFile)
 	if err != nil {
@@ -45,8 +49,13 @@ func run(args []string) error {
 	case "worker":
 		return app.RunWorker(ctx, &cfg, log)
 	case "migrate":
-		return errors.New("migrate is not implemented yet")
+		return migrate(ctx, &cfg, log, args)
 	default:
 		return fmt.Errorf("unknown command %q (want serve, worker or migrate)", cmd)
 	}
+}
+
+// logResult is the shape shared by every migrate output line.
+func logResult(log logger.Logger, msg string, version int64, path string) {
+	log.Info(msg, logger.F("version", version), logger.F("file", path))
 }

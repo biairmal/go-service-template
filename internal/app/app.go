@@ -21,7 +21,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 
-	_ "github.com/biairmal/go-service-template/internal/platform/database" // registers the pgx driver
+	"github.com/biairmal/go-service-template/internal/platform/database"
+	"github.com/biairmal/go-service-template/migrations"
 )
 
 // App is a built service, ready to serve.
@@ -59,6 +60,11 @@ func New(ctx context.Context, cfg *Config, log logger.Logger) (*App, error) {
 		return nil, err
 	}
 	a.tracer = tr
+
+	if err := checkSchema(ctx, db); err != nil {
+		a.close(ctx)
+		return nil, err
+	}
 
 	a.handler = a.routes(chi.NewRouter(), middlewareChain(cfg, log, tr, rec))
 	return a, nil
@@ -150,6 +156,16 @@ func (a *App) close(ctx context.Context) {
 			a.log.Error("database close", logger.F("error", err.Error()))
 		}
 	}
+}
+
+// checkSchema refuses to start when the database is behind the newest
+// embedded migration.
+func checkSchema(ctx context.Context, db *sqlkit.DB) error {
+	m, err := database.NewMigrator(db.Leader(), migrations.FS)
+	if err != nil {
+		return err
+	}
+	return m.EnsureCurrent(ctx)
 }
 
 // newRegistry is the app's own metrics registry (not the process-global
