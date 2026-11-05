@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/biairmal/go-sdk/lib/auth"
+	"github.com/biairmal/go-sdk/lib/authz"
 	"github.com/biairmal/go-sdk/lib/config"
 	"github.com/biairmal/go-sdk/lib/errorz"
 	"github.com/biairmal/go-sdk/lib/lifecycle"
@@ -28,6 +30,9 @@ type Config struct {
 	HTTP      HTTPConfig       `mapstructure:"http"`
 	Log       logger.Options   `mapstructure:"log"`
 	Database  sqlkit.Config    `mapstructure:"database"`
+	Auth      AuthConfig       `mapstructure:"auth"`
+	Authz     authz.Config     `mapstructure:"authz"`
+	Tenancy   TenancyConfig    `mapstructure:"tenancy"`
 	Tracing   TracingConfig    `mapstructure:"tracing"`
 	Metrics   MetricsConfig    `mapstructure:"metrics"`
 	Swagger   SwaggerConfig    `mapstructure:"swagger"`
@@ -53,6 +58,25 @@ type HTTPConfig struct {
 // CORSConfig lists the browser origins allowed to call the API.
 type CORSConfig struct {
 	AllowedOrigins []string `mapstructure:"allowed_origins"`
+}
+
+// AuthConfig toggles token validation; the rest is go-sdk auth.Config.
+// With auth off every route is public and devClaims stands in for a token.
+type AuthConfig struct {
+	Enabled     bool `mapstructure:"enabled"`
+	auth.Config `mapstructure:",squash"`
+}
+
+// Tenancy modes for TenancyConfig.Mode.
+const (
+	TenancySingle = "single"
+	TenancyMulti  = "multi"
+)
+
+// TenancyConfig mirrors identity's modules.tenant.mode. The service never
+// creates or looks up tenants: in both modes the tenant comes from the token.
+type TenancyConfig struct {
+	Mode string `mapstructure:"mode"`
 }
 
 // TracingConfig toggles tracing; the rest is go-sdk tracer.Config.
@@ -89,6 +113,9 @@ func (c *Config) sections() []section {
 		{"service", c.Service.validate},
 		{"http", c.HTTP.validate},
 		{"database", c.Database.Validate},
+		{"auth", c.validateAuth},
+		{"authz", c.Authz.Validate},
+		{"tenancy", c.Tenancy.validate},
 		{"tracing", c.validateTracing},
 		{"metrics", c.validateMetrics},
 		{"swagger", c.validateSwagger},
@@ -125,6 +152,23 @@ func (h *HTTPConfig) validate() error {
 	}
 	if h.MaxBodyBytes <= 0 {
 		return errorz.BadRequest().WithMessage("max_body_bytes must be positive")
+	}
+	return nil
+}
+
+func (c *Config) validateAuth() error {
+	if !c.Auth.Enabled {
+		if c.Service.Environment == EnvProduction {
+			return errorz.BadRequest().WithMessage("auth must be enabled in production")
+		}
+		return nil
+	}
+	return c.Auth.Validate()
+}
+
+func (t TenancyConfig) validate() error {
+	if t.Mode != TenancySingle && t.Mode != TenancyMulti {
+		return errorz.BadRequest().WithMessage("mode must be single or multi")
 	}
 	return nil
 }
@@ -175,5 +219,23 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Validator.FieldNameTag == "" {
 		c.Validator.FieldNameTag = "json"
+	}
+	if !c.Auth.Enabled {
+		// No token means no roles from identity: the dev claims' admin role is granted everything.
+		c.Authz.Source = authz.SourceConfig
+		c.Authz.Roles = map[string][]string{devRole: {"*"}}
+	}
+	def := authz.DefaultConfig()
+	if c.Authz.CacheTTL == 0 {
+		c.Authz.CacheTTL = def.CacheTTL
+	}
+	if c.Authz.PermsClaim == "" {
+		c.Authz.PermsClaim = def.PermsClaim
+	}
+	if c.Authz.TenantClaim == "" {
+		c.Authz.TenantClaim = def.TenantClaim
+	}
+	if c.Authz.SuperClaim == "" {
+		c.Authz.SuperClaim = def.SuperClaim
 	}
 }

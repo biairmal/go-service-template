@@ -33,6 +33,11 @@ func TestConfigValidate(t *testing.T) {
 			c.Swagger = SwaggerConfig{Enabled: true, Username: "u", Password: "p"}
 		}, ""},
 		{"tracing on needs endpoint", func(c *Config) { c.Tracing.Enabled = true; c.Tracing.Endpoint = "" }, "tracing"},
+		{"production needs auth", func(c *Config) { c.Service.Environment = EnvProduction }, "auth"},
+		{"production with auth on", func(c *Config) { c.Service.Environment = EnvProduction; c.Auth.Enabled = true }, ""},
+		{"auth on needs jwks_url", func(c *Config) { c.Auth.Enabled = true; c.Auth.Local.JWKSURL = "" }, "auth"},
+		{"bad authz source", func(c *Config) { c.Authz.Source = "ldap" }, "authz"},
+		{"bad tenancy mode", func(c *Config) { c.Tenancy.Mode = "shared" }, "tenancy"},
 		{"negative drain delay", func(c *Config) { c.Lifecycle.DrainDelay = -1 }, "lifecycle"},
 	}
 	for _, tt := range tests {
@@ -57,5 +62,8 @@ func TestLoadConfigDerivesDefaults(t *testing.T) {
 	cfg := validConfig(t)
 	if cfg.Tracing.ServiceName != cfg.Service.Name || cfg.Validator.FieldNameTag != "json" {
 		t.Errorf("derived defaults not applied: %+v / %+v", cfg.Tracing.Config, cfg.Validator)
+	}
+	if cfg.Authz.Source != "config" || len(cfg.Authz.Roles[devRole]) != 1 || cfg.Authz.Roles[devRole][0] != "*" {
+		t.Errorf("auth off should force authz to source config with %s: [*], got %+v", devRole, cfg.Authz)
 	}
 }

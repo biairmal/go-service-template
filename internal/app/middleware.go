@@ -3,6 +3,10 @@ package app
 import (
 	"net/http"
 	"slices"
+
+	"github.com/biairmal/go-sdk/lib/auth"
+	"github.com/biairmal/go-sdk/lib/httpkit/middleware"
+	"github.com/biairmal/go-sdk/lib/logger"
 )
 
 // Headers the browser may send and read cross-origin.
@@ -36,6 +40,42 @@ func cors(cfg CORSConfig) func(http.Handler) http.Handler {
 				return
 			}
 			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// The fixed caller devClaims puts on every request when auth is off. The
+// subject and tenant are constant, so rows created in one run are found in
+// the next.
+const (
+	devSubject = "00000000-0000-4000-8000-00000000d001"
+	devTenant  = "00000000-0000-4000-8000-00000000d002"
+	devRole    = "admin"
+)
+
+// authMiddleware validates bearer tokens per the route policy. With auth off
+// it logs a warning and returns devClaims instead, so scoped code runs
+// unchanged without identity.
+func authMiddleware(cfg *Config, log logger.Logger) (func(http.Handler) http.Handler, error) {
+	if !cfg.Auth.Enabled {
+		log.Warn("auth is disabled: every route is public and every caller is the dev admin",
+			logger.F("subject", devSubject), logger.F("tenant_id", devTenant))
+		return devClaims(), nil
+	}
+	v, err := auth.FromConfig(&cfg.Auth.Config)
+	if err != nil {
+		return nil, err
+	}
+	return middleware.Auth(v, middleware.WithPolicy(cfg.Auth.Policy())), nil
+}
+
+// devClaims puts the fixed dev caller (devSubject in tenant devTenant, role
+// devRole) on every request, as if it carried a token.
+func devClaims() func(http.Handler) http.Handler {
+	claims := auth.NewClaims(map[string]any{"sub": devSubject, "tid": devTenant, "roles": []string{devRole}})
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r.WithContext(auth.ContextWithClaims(r.Context(), claims)))
 		})
 	}
 }

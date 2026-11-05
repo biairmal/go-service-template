@@ -68,16 +68,33 @@ func New(ctx context.Context, cfg *Config, log logger.Logger) (*App, error) {
 		return nil, err
 	}
 
+	authMW, err := authMiddleware(cfg, log)
+	if err != nil {
+		a.close(ctx)
+		return nil, err
+	}
+	az, err := newAuthorizer(cfg, log)
+	if err != nil {
+		a.close(ctx)
+		return nil, err
+	}
 	deps := Deps{
-		DB: db, Log: log, V: validator.New(cfg.Validator), Authz: authz.NewNoOp(), Outbox: database.NewOutbox(db),
+		DB: db, Log: log, V: validator.New(cfg.Validator), Authz: az, Outbox: database.NewOutbox(db),
 	}
 	modules, err := buildModules(&a.cfg, &deps)
 	if err != nil {
 		a.close(ctx)
 		return nil, err
 	}
-	a.handler = a.routes(chi.NewRouter(), modules, middlewareChain(cfg, log, tr, rec))
+	chain := append(middlewareChain(cfg, log, tr, rec), authMW)
+	a.handler = a.routes(chi.NewRouter(), modules, chain)
 	return a, nil
+}
+
+// newAuthorizer builds the permission checker modules get in Deps.Authz.
+// With auth off, LoadConfig has already switched it to the dev admin role map.
+func newAuthorizer(cfg *Config, log logger.Logger) (authz.Authorizer, error) {
+	return authz.New(&cfg.Authz, authz.WithLogger(log))
 }
 
 // middlewareChain is the shared middleware, outermost first.
@@ -93,6 +110,7 @@ func middlewareChain(
 		middleware.Logging(log, &middleware.LoggingOptions{LogResponse: true}),
 		cors(cfg.HTTP.CORS),
 		maxBody(cfg.HTTP.MaxBodyBytes),
+		// authMiddleware goes last; New appends it.
 	}
 }
 
