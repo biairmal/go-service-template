@@ -28,7 +28,8 @@ type Repository interface {
 	// Get returns one note, or errorz.NotFound.
 	Get(ctx context.Context, id uuid.UUID, owners Owners) (*Note, error)
 	// List returns one page of notes matching opts, and the total matching.
-	List(ctx context.Context, opts *repository.ListOptions, owners Owners) ([]Note, int64, error)
+	// A non-empty search matches the title or body, case-insensitively.
+	List(ctx context.Context, opts *repository.ListOptions, search string, owners Owners) ([]Note, int64, error)
 	// Update writes the patch's columns and bumps the version, provided the
 	// stored version is still version: NotFound when the note is out of
 	// scope, VERSION_CONFLICT when it is in scope with another version.
@@ -84,7 +85,9 @@ func (r *sqlRepository) Get(ctx context.Context, id uuid.UUID, owners Owners) (*
 	return scanNote(row)
 }
 
-func (r *sqlRepository) List(ctx context.Context, opts *repository.ListOptions, owners Owners) ([]Note, int64, error) {
+func (r *sqlRepository) List(
+	ctx context.Context, opts *repository.ListOptions, search string, owners Owners,
+) ([]Note, int64, error) {
 	if opts == nil {
 		opts = &repository.ListOptions{}
 	}
@@ -94,6 +97,10 @@ func (r *sqlRepository) List(ctx context.Context, opts *repository.ListOptions, 
 	}
 	where, args := reposql.BuildWhereClause(reposql.Postgres{},
 		repository.Filter{Conditions: append(conds, opts.Filter.Conditions...)})
+	if search != "" {
+		args = append(args, "%"+search+"%")
+		where += fmt.Sprintf(" AND (title ILIKE $%d OR body ILIKE $%d)", len(args), len(args))
+	}
 	conn := r.base.GetReadConnection(ctx)
 
 	var total int64

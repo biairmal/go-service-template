@@ -87,9 +87,9 @@ func (mr *MockRepositoryMockRecorder) Get(ctx, id, owners any) *gomock.Call {
 }
 
 // List mocks base method.
-func (m *MockRepository) List(ctx context.Context, opts *repository.ListOptions, owners Owners) ([]Note, int64, error) {
+func (m *MockRepository) List(ctx context.Context, opts *repository.ListOptions, search string, owners Owners) ([]Note, int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "List", ctx, opts, owners)
+	ret := m.ctrl.Call(m, "List", ctx, opts, search, owners)
 	ret0, _ := ret[0].([]Note)
 	ret1, _ := ret[1].(int64)
 	ret2, _ := ret[2].(error)
@@ -97,9 +97,9 @@ func (m *MockRepository) List(ctx context.Context, opts *repository.ListOptions,
 }
 
 // List indicates an expected call of List.
-func (mr *MockRepositoryMockRecorder) List(ctx, opts, owners any) *gomock.Call {
+func (mr *MockRepositoryMockRecorder) List(ctx, opts, search, owners any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockRepository)(nil).List), ctx, opts, owners)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockRepository)(nil).List), ctx, opts, search, owners)
 }
 
 // Update mocks base method.

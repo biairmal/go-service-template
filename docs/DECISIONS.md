@@ -38,3 +38,8 @@ Choices made where the SPEC was silent or unclear. One line each: `date · task 
 | 2026-11-05 | T2.2 | Request bodies are validated in the handler; the service trusts its typed inputs | The plan puts validation in the handler step; the `CHECK` on `status` still guards the table |
 | 2026-11-05 | T2.2 | `PATCH` with no field set is a 400 | It would only bump the version |
 | 2026-11-05 | T2.2 | `modules.note.list_max_size` must be 1–100 | go-sdk's repository caps a page at 100, so a larger value would be silently cut |
+| 2026-11-05 | T2.3 | `title=value;like` is go-sdk's case-sensitive `LIKE`; `search` is the case-insensitive option (`ILIKE` on title or body) | go-identity's `;like` (audit `action`) is a plain `LIKE` too, so the syntax means the same thing against both services |
+| 2026-11-05 | T2.3 | Only `title` takes `;like`; `status`, `pinned` and `owner_id` match exactly, and a bad value (`pinned=maybe`, `owner_id=me`, an unknown status) is a 400 naming the key | Without the check, `LIKE` on a boolean or UUID column reaches Postgres as a 500 |
+| 2026-11-05 | T2.3 | The default order `updated_at DESC` (then `id`) lives in the repository, not the `ListParseConfig` | `ListParseConfig` has no default-sort field; the repository already applies it when no sort is given |
+| 2026-11-05 | T2.3 | `created_from`/`created_to` become `created_at >=` / `<` conditions; a date without a time is midnight UTC | go-sdk's filter builder already has `gte` and `lt`, so only `search` needed SQL in the repository |
+| 2026-11-05 | T2.3 | `%` and `_` in `search` and `;like` values are not escaped | Same as go-identity; they only widen the caller's own scoped list |

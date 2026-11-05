@@ -43,7 +43,7 @@ func TestUserCannotReachAnotherUsersNote(t *testing.T) {
 	if err := repo.Delete(bob, n.ID, note.OwnNotes); !isNotFound(err) {
 		t.Errorf("bob Delete = %v, want not found", err)
 	}
-	if rows, total, err := repo.List(bob, nil, note.OwnNotes); err != nil || total != 0 || len(rows) != 0 {
+	if rows, total, err := repo.List(bob, nil, "", note.OwnNotes); err != nil || total != 0 || len(rows) != 0 {
 		t.Errorf("bob List = %d rows, total %d, %v; want none", len(rows), total, err)
 	}
 	if got, err := repo.Get(alice, n.ID, note.OwnNotes); err != nil || got.Title != "alice's" {
@@ -66,7 +66,7 @@ func TestTenantNeverSeesAnotherTenantsNotes(t *testing.T) {
 		if err := repo.Delete(inB, n.ID, owners); !isNotFound(err) {
 			t.Errorf("Delete from tenant B (owners=%v) = %v, want not found", owners, err)
 		}
-		if _, total, err := repo.List(inB, nil, owners); err != nil || total != 0 {
+		if _, total, err := repo.List(inB, nil, "", owners); err != nil || total != 0 {
 			t.Errorf("List from tenant B (owners=%v) = total %d, %v; want 0", owners, total, err)
 		}
 	}
@@ -87,7 +87,7 @@ func TestAnyOwnerSkipsTheOwnerFilterOnly(t *testing.T) {
 	if _, err := repo.Get(admin, n.ID, note.AnyOwner); err != nil {
 		t.Errorf("admin Get with AnyOwner = %v", err)
 	}
-	if rows, total, err := repo.List(admin, nil, note.AnyOwner); err != nil || total != 1 || rows[0].ID != n.ID {
+	if rows, total, err := repo.List(admin, nil, "", note.AnyOwner); err != nil || total != 1 || rows[0].ID != n.ID {
 		t.Errorf("admin List with AnyOwner = %v rows, total %d, %v; want only the tenant's note", rows, total, err)
 	}
 	pinned := true
@@ -153,12 +153,12 @@ func TestListPagesNewestFirst(t *testing.T) {
 		}
 		ids = append(ids, n.ID)
 	}
-	rows, total, err := repo.List(ctx, &repository.ListOptions{Pagination: repository.Pagination{Limit: 2, Offset: 0}},
+	rows, total, err := repo.List(ctx, &repository.ListOptions{Pagination: repository.Pagination{Limit: 2, Offset: 0}}, "",
 		note.OwnNotes)
 	if err != nil || total != 3 || len(rows) != 2 || rows[0].ID != ids[2] || rows[1].ID != ids[1] {
 		t.Fatalf("first page = %v, total %d, %v; want the two newest of 3", rows, total, err)
 	}
-	rows, _, err = repo.List(ctx, &repository.ListOptions{Pagination: repository.Pagination{Limit: 2, Offset: 2}},
+	rows, _, err = repo.List(ctx, &repository.ListOptions{Pagination: repository.Pagination{Limit: 2, Offset: 2}}, "",
 		note.OwnNotes)
 	if err != nil || len(rows) != 1 || rows[0].ID != ids[0] {
 		t.Fatalf("second page = %v, %v; want the oldest", rows, err)

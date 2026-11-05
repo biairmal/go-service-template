@@ -57,3 +57,13 @@ const (
 	// an ":any" permission.
 	AnyOwner Owners = true
 )
+
+// ListExtra holds the GET /v1/notes parameters the generic list filters
+// can't express: a search over two columns and a range on one.
+type ListExtra struct {
+	// Search matches the title or body, case-insensitively.
+	Search string
+	// CreatedFrom and CreatedTo bound created_at as [from, to); nil is open.
+	CreatedFrom *time.Time
+	CreatedTo   *time.Time
+}

@@ -188,7 +188,7 @@ func TestAnyPermissionsWidenTheOwnerScope(t *testing.T) {
 			h, repo := newTestServer(t, tt.perms...)
 			repo.EXPECT().Get(gomock.Any(), id, tt.want).
 				DoAndReturn(func(ctx context.Context, _ uuid.UUID, _ Owners) (*Note, error) { return stored(ctx, "t"), nil })
-			repo.EXPECT().List(gomock.Any(), gomock.Any(), tt.want).Return(nil, int64(0), nil)
+			repo.EXPECT().List(gomock.Any(), gomock.Any(), "", tt.want).Return(nil, int64(0), nil)
 			title := "new"
 			repo.EXPECT().Update(gomock.Any(), id, 3, &Patch{Title: &title}, tt.want).
 				DoAndReturn(func(ctx context.Context, _ uuid.UUID, _ int, p *Patch, _ Owners) (*Note, error) {
@@ -216,8 +216,8 @@ func TestAnyPermissionsWidenTheOwnerScope(t *testing.T) {
 
 func TestListIsAFirstPage(t *testing.T) {
 	h, repo := newTestServer(t, PermRead)
-	repo.EXPECT().List(gomock.Any(), gomock.Any(), OwnNotes).
-		DoAndReturn(func(ctx context.Context, opts *repository.ListOptions, _ Owners) ([]Note, int64, error) {
+	repo.EXPECT().List(gomock.Any(), gomock.Any(), "", OwnNotes).
+		DoAndReturn(func(ctx context.Context, opts *repository.ListOptions, _ string, _ Owners) ([]Note, int64, error) {
 			if opts.Pagination.Limit != 50 || opts.Pagination.Offset != 0 {
 				t.Errorf("pagination = %+v, want the first page capped at list_max_size 50", opts.Pagination)
 			}
