@@ -18,3 +18,6 @@ Choices made where the SPEC was silent or unclear. One line each: `date · task 
 | 2026-11-05 | T0.3 | go-identity's `TestOperationalEndpoints` and `TestShutdownFlipsReadinessThenExits` come over with the test kit | They need `testkit.Postgres`; T0.1 checked shutdown against the real binary until now |
 | 2026-11-05 | T0.6 | Stacked on T0.3 | The cleanup job takes a `clock.Clock` and its tests use `testkit.NewClock`, both from T0.3 |
 | 2026-11-05 | T0.6 | The worker registers no senders, so a row on any topic stays unsent with `last_error` set until cleanup drops it after 30 days | The template sends nothing yet; a module that enqueues a topic adds its sender to `senders()` |
+| 2026-11-05 | T0.5 | `scope.Owner` replaces go-identity's `scope.User`; `Session` is left out | Both read the token subject as a UUID, so keeping both would be two names for one value; refresh sessions are identity's |
+| 2026-11-05 | T0.5 | `scope.Owner` reads the subject from the token claims (`auth.SubjectFromContext`), not `ctxkit.UserID` | `Tenant` already reads from the claims, and the dev claims with auth off (T1.1) only need to put claims in the context |
+| 2026-11-05 | T0.5 | `OwnerFilter` returns `[]repository.FilterCondition` (empty when the caller holds the `:any` permission) | Appends straight onto `ListOptions.Filter.Conditions` with no branch at the call site |
