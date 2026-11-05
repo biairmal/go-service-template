@@ -3,7 +3,8 @@
 # Local (`make up`): builds the image from this checkout and runs it with the
 # config.yaml defaults (auth off, dev claims). `make run` still works next to
 # it: the api container is reached through Caddy only, so host port 8080 stays
-# free. `make up-obs` adds Prometheus, Grafana, Loki and Tempo.
+# free. `make up-obs` adds Prometheus, Grafana, Loki and Tempo; `make
+# up-identity` adds a real go-identity on localhost:8081 and turns auth on.
 #
 # VPS: copy .env.example to .env next to this file, then
 # `docker compose pull && docker compose up -d`. `migrate` runs first each
@@ -26,6 +27,35 @@ x-app: &app
     DB_HOST: postgres
     TRACING_ENABLED: ${TRACING_ENABLED:-false}
     OTEL_ENDPOINT: tempo:4317
+    # Auth: off unless set here or in .env. `make up-identity` turns it on
+    # against the identity profile's api.
+    AUTH_ENABLED: ${AUTH_ENABLED:-false}
+    AUTH_JWKS_URL: ${AUTH_JWKS_URL:-http://identity-api:8080/.well-known/jwks.json}
+    AUTHZ_IDENTITY_URL: ${AUTHZ_IDENTITY_URL:-http://identity-api:8080}
+    IDENTITY_CLIENT_SECRET: ${IDENTITY_CLIENT_SECRET:-}
+  read_only: true
+  tmpfs: [/tmp]
+  restart: unless-stopped
+
+# go-identity from a sibling checkout (IDENTITY_SRC, relative to this file
+# unless absolute; `make up-identity` passes an absolute path).
+x-identity: &identity
+  profiles: [identity]
+  image: go-identity:local
+  build: ${IDENTITY_SRC:-../../../go-identity}
+  environment:
+    DB_HOST: postgres
+    DB_USER: identity
+    DB_PASSWORD: identity
+    AUTH_ENABLED: "true"
+    IDENTITY_PUBLIC_URL: http://localhost:8081
+    # The dev super admin, created on identity's first start. The first
+    # sign-in must change the password (POST /v1/me/password).
+    SUPER_ADMIN_EMAIL: admin@example.com
+    SUPER_ADMIN_PASSWORD: local-super-admin-1
+  volumes:
+    - ./identity.yaml:/app/config/config.yaml:ro
+    - ${IDENTITY_SRC:-../../../go-identity}/keys:/etc/identity/keys:ro
   read_only: true
   tmpfs: [/tmp]
   restart: unless-stopped
@@ -114,6 +144,51 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  # --- Profile identity (local only): a real go-identity on localhost:8081,
+  # sharing this Postgres in its own `identity` schema. `make up-identity`.
+
+  # Creates identity's schema and role with identity's own bootstrap.sql. Runs
+  # on every start (the SQL is idempotent), so it also works on a volume that
+  # `make up` created before the profile was first used.
+  identity-db:
+    profiles: [identity]
+    image: postgres:16-alpine
+    environment:
+      PGHOST: postgres
+      PGUSER: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      PGDATABASE: app
+    command: ["psql", "-q", "-v", "ON_ERROR_STOP=1", "-v", "identity_password=identity", "-f", "/identity-sql/bootstrap.sql"]
+    volumes:
+      - ${IDENTITY_SRC:-../../../go-identity}/deploy/sql:/identity-sql:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  identity-migrate:
+    <<: *identity
+    command: ["migrate", "up"]
+    restart: "no"
+    depends_on:
+      identity-db:
+        condition: service_completed_successfully
+
+  identity-api:
+    <<: *identity
+    command: ["serve"]
+    ports:
+      - "127.0.0.1:8081:8080"
+    depends_on:
+      identity-migrate:
+        condition: service_completed_successfully
+
+  identity-worker:
+    <<: *identity
+    command: ["worker"]
+    depends_on:
+      identity-migrate:
+        condition: service_completed_successfully
 
   # --- Profile obs: metrics, logs and traces, linked in Grafana (localhost:3000).
   # The api sends traces to Tempo when TRACING_ENABLED=true (`make up-obs` sets it).
