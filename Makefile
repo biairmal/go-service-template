@@ -7,9 +7,12 @@ SWAG := go run github.com/swaggo/swag/cmd/swag@v1.16.6
 SWAGGER_DIR := api/swagger
 IMAGE := ghcr.io/biairmal/go-service-template
 GIT_SHA := $(shell git rev-parse --short HEAD)
+IDENTITY_SRC ?= ../go-identity
+# The dev service-client secret; identity.yaml holds its argon2id hash.
+IDENTITY_DEV_SECRET := local-note-service-secret
 
 .DEFAULT_GOAL := help
-.PHONY: help up up-obs down image run build swagger test test-integration lint format format-check coverage vulncheck check \
+.PHONY: help up up-obs up-identity down image run build swagger test test-integration lint format format-check coverage vulncheck check \
 	migrate-up migrate-down migrate-create
 
 help: ## Show targets
@@ -21,8 +24,13 @@ up: ## Build the image and start the stack: Postgres, migrate, api, worker, Cadd
 up-obs: ## make up plus Prometheus, Grafana (localhost:3000), Loki and Tempo, with tracing on
 	TRACING_ENABLED=true $(COMPOSE) --profile obs up -d --build --wait
 
+up-identity: ## make up plus go-identity on localhost:8081 built from IDENTITY_SRC (../go-identity); auth on
+	test -f $(IDENTITY_SRC)/keys/keys.yaml || $(MAKE) -C $(IDENTITY_SRC) keys
+	IDENTITY_SRC="$(abspath $(IDENTITY_SRC))" AUTH_ENABLED=true IDENTITY_CLIENT_SECRET=$(IDENTITY_DEV_SECRET) \
+		$(COMPOSE) --profile identity up -d --build --wait
+
 down: ## Stop the stack (every profile)
-	$(COMPOSE) --profile obs down
+	$(COMPOSE) --profile obs --profile identity down
 
 image: swagger ## Generate Swagger docs, then build the image tagged with the git SHA
 	docker build --build-arg SERVICE_VERSION=$(GIT_SHA) -t $(IMAGE):$(GIT_SHA) .
