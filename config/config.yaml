@@ -33,6 +33,32 @@ database:                                     # sqlkit.Config
   pool: { max_open_conns: 25, max_idle_conns: 5, conn_max_lifetime: 5m }
   health: { enabled: true, check_interval: 10s, timeout: 2s }
 
+auth:                                         # enabled + auth.Config
+  enabled: ${AUTH_ENABLED:false}              # off: every route public, fixed dev caller; refused in production
+  mode: local
+  default_protected: true
+  rules:
+    - { pattern: /healthz, public: true }
+    - { pattern: /readyz, public: true }
+    - { pattern: /version, public: true }
+    - { pattern: /metrics, public: true }
+    - { method: GET, pattern: /swagger/**, public: true }   # API docs: basic auth instead of a token (swagger.enabled)
+  local:
+    algorithm: RS256
+    jwks_url: ${AUTH_JWKS_URL:http://localhost:8081/.well-known/jwks.json}   # identity profile publishes 8081
+    issuer: ${AUTH_ISSUER:identity}           # identity's modules.auth.token.issuer
+    audience: ${AUTH_AUDIENCE:api}            # one of identity's modules.auth.token.audience
+  cache_ttl: 30s
+
+authz:                                        # go-sdk authz.Config; with auth off: source config, admin: ["*"]
+  source: ${AUTHZ_SOURCE:identity}            # token | config | identity
+  identity_url: ${AUTHZ_IDENTITY_URL:http://localhost:8081}
+  cache_ttl: 1m                               # how long a tenant's role map stays fresh
+  roles: {}                                   # used by source: config
+
+tenancy:
+  mode: ${TENANCY_MODE:single}                # must match identity's modules.tenant.mode
+
 tracing:                                      # enabled + tracer.Config
   enabled: ${TRACING_ENABLED:false}
   endpoint: ${OTEL_ENDPOINT:localhost:4317}
