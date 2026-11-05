@@ -1,0 +1,34 @@
+{{- if and .Values.route.enabled (eq .Values.route.kind "ingress") }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "service.fullname" . }}
+  labels:
+    {{- include "service.labels" . | nindent 4 }}
+  {{- $annotations := .Values.route.annotations }}
+  {{- if .Values.route.blockInternalPath }}
+  {{/* nginx-ingress only; other controllers need their own rule (docs/DECISIONS.md). */}}
+  {{- $annotations = merge (dict "nginx.ingress.kubernetes.io/configuration-snippet" "if ($uri ~* \"^/v1/internal\") { return 404; }\n") $annotations }}
+  {{- end }}
+  {{- with $annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.route.tls.enabled }}
+  tls:
+    - hosts: [{{ .Values.route.host | quote }}]
+      secretName: {{ .Values.route.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.route.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "service.fullname" . }}
+                port:
+                  number: {{ .Values.service.port }}
+{{- end }}

@@ -1,0 +1,97 @@
+image:
+  repository: ghcr.io/biairmal/go-service-template
+  tag: ""  # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+worker:
+  enabled: true
+  replicaCount: 1
+
+# CPU requests are what the HPA's utilization target is measured against.
+resources:
+  requests: { cpu: 100m, memory: 64Mi }
+  limits: { memory: 256Mi }
+workerResources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { memory: 256Mi }
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+# Toggled on for a cluster that needs it; kind picks the resource (plain
+# Ingress or an OpenShift Route). Off by default so `helm install` on a bare
+# kind cluster needs no ingress controller.
+route:
+  enabled: false
+  kind: ingress  # ingress | openshift
+  host: ""
+  annotations: {}
+  # /v1/internal must not be reachable through the public ingress/Route, only
+  # via the ClusterIP Service (or in-cluster DNS) that other services use.
+  # true adds the controller-specific rule that denies it.
+  blockInternalPath: true
+  tls:
+    enabled: false
+    secretName: ""
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
+
+# Must track config/config.yaml's lifecycle block: terminationGracePeriod is
+# computed from these three (plus a margin) so the pod is never killed before
+# a draining request finishes.
+lifecycle:
+  drainDelay: 5s
+  shutdownTimeout: 20s
+  closerTimeout: 10s
+
+# Non-secret env vars, by the name config/config.yaml reads (its ${VAR:default}
+# keys). Rendered into a ConfigMap and loaded with envFrom.
+config:
+  SERVICE_NAME: note-service
+  APP_ENV: production
+  LOG_LEVEL: info
+  LOG_FORMAT: json
+  CORS_ORIGINS: ""
+  DB_HOST: ""
+  DB_PORT: "5432"
+  DB_NAME: app
+  DB_USER: app
+  DB_SSLMODE: require
+  AUTH_ENABLED: "true"                          # production refuses false
+  AUTH_JWKS_URL: ""                             # identity's /.well-known/jwks.json
+  AUTH_ISSUER: identity
+  AUTH_AUDIENCE: api
+  AUTHZ_SOURCE: identity
+  AUTHZ_IDENTITY_URL: ""                        # identity's in-cluster Service URL
+  IDENTITY_CLIENT_ID: note-service
+  TENANCY_MODE: single
+  METRICS_ENABLED: "true"
+  METRICS_NAMESPACE: app
+  TRACING_ENABLED: "false"
+  OTEL_ENDPOINT: ""
+  SWAGGER_ENABLED: "false"
+
+# Name of a Secret this chart does not create, with the secret env vars of
+# .env.example: DB_PASSWORD, IDENTITY_CLIENT_SECRET, and SWAGGER_USERNAME/PASSWORD
+# when swagger is on. Loaded with envFrom alongside the ConfigMap.
+secret:
+  existingSecret: ""
+
+migrate:
+  backoffLimit: 3
