@@ -8,10 +8,22 @@ import (
 
 	"github.com/biairmal/go-sdk/lib/logger"
 	"github.com/biairmal/go-sdk/lib/sqlkit"
+	"golang.org/x/sync/errgroup"
+
+	"github.com/biairmal/go-service-template/internal/platform/cleanup"
+	"github.com/biairmal/go-service-template/internal/platform/clock"
+	"github.com/biairmal/go-service-template/internal/platform/database"
 )
 
-// RunWorker runs the background jobs until SIGINT, SIGTERM or ctx is done.
-// No job is registered yet, so it only holds the database connection open.
+// senders maps outbox topics to their Sender. A module that enqueues a topic
+// adds its sender here. A row whose topic has none stays unsent, with the
+// failure in last_error, until cleanup drops it after the retention window.
+func senders() map[string]database.Sender {
+	return map[string]database.Sender{}
+}
+
+// RunWorker runs the background jobs (the outbox dispatcher and the cleanup
+// job) until SIGINT, SIGTERM or ctx is done.
 func RunWorker(ctx context.Context, cfg *Config, log logger.Logger) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -25,9 +37,23 @@ func RunWorker(ctx context.Context, cfg *Config, log logger.Logger) error {
 			log.Error("database close", logger.F("error", err.Error()))
 		}
 	}()
+	if err := checkSchema(ctx, db); err != nil {
+		return err
+	}
 
 	log.Info("worker started")
-	<-ctx.Done()
+
+	// The dispatcher and the cleanup job are independent, so they run
+	// side by side; the first to fail stops the worker.
+	group, ctx := errgroup.WithContext(ctx)
+	group.Go(func() error {
+		return database.NewDispatcher(db, senders(), log).Run(ctx)
+	})
+	group.Go(func() error {
+		return cleanup.New(db, clock.System{}, log).Run(ctx, cleanup.DefaultInterval)
+	})
+	err = group.Wait()
+
 	log.Info("worker stopped")
-	return nil
+	return err
 }
