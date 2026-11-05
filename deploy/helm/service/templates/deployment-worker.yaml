@@ -1,0 +1,42 @@
+{{- if .Values.worker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "service.fullname" . }}-worker
+  labels:
+    {{- include "service.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  replicas: {{ .Values.worker.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "service.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      annotations:
+        # Roll the pods when the ConfigMap changes; envFrom is read only at start.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      labels:
+        {{- include "service.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: worker
+    spec:
+      securityContext:
+        {{- include "service.podSecurityContext" . | nindent 8 }}
+      terminationGracePeriodSeconds: {{ include "service.terminationGracePeriodSeconds" . }}
+      containers:
+        - name: worker
+          image: {{ include "service.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["worker"]
+          envFrom:
+            {{- include "service.envFrom" . | nindent 12 }}
+          securityContext:
+            {{- include "service.containerSecurityContext" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.workerResources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+{{- end }}
