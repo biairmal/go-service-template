@@ -59,6 +59,24 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
+          load: true
+          tags: ghcr.io/${{ github.repository }}:smoke
+          build-args: SERVICE_VERSION=${{ steps.vars.outputs.version }}
+      # Run the built image in the VPS Compose stack before publishing it.
+      - name: Smoke test
+        env:
+          IMAGE_TAG: smoke
+        run: |
+          docker compose -f deploy/compose/docker-compose.yaml up -d --no-build --wait
+          got="$(curl -sk https://localhost/version)"
+          echo "$got"
+          echo "$got" | grep -q '"${{ steps.vars.outputs.version }}"'
+      - name: Smoke test logs
+        if: failure()
+        run: docker compose -f deploy/compose/docker-compose.yaml logs
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
           push: true
           tags: ${{ steps.vars.outputs.tags }}
           build-args: SERVICE_VERSION=${{ steps.vars.outputs.version }}
