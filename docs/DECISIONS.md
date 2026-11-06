@@ -4,6 +4,18 @@ Choices made where the SPEC was silent or unclear. One line each: `date · task 
 
 | Date | Task | Decision | Reason |
 |---|---|---|---|
+| 2026-10-27 | SPEC 1 | CORS and request-size middleware are template-local, copied from go-identity | They move to go-sdk with the rest of the shared platform code (SPEC 9) |
+| 2026-10-27 | SPEC 2 | Renovate updates Go modules and the base image | Same config as go-identity |
+| 2026-10-27 | SPEC 3 | A daily `pg_dump` sidecar in Compose backs up Postgres on a VPS | A VPS has no managed backups; restore steps in `docs/runbooks/backup-restore.md` |
+| 2026-10-27 | SPEC 4 | The outbox (go-identity's table and dispatcher) ships from the start | Email and queue side effects commit with the change that causes them |
+| 2026-10-27 | SPEC 5 | No sqlc: repositories use intent methods with named columns on go-sdk `repository/sql` | Revisit if hand-written SQL grows |
+| 2026-10-27 | SPEC 6 | Repository cache is off by default; opt-in per repository, never for auth or secret tables | Stale reads are worse than a query for most resources |
+| 2026-10-22 | SPEC 7 | go-chi/chi v5 with go-sdk `handler.Handle` and the envelope | Same as guest-management-be and go-identity; replaces stdlib `ServeMux` |
+| 2026-10-25 | SPEC 8 | swaggo annotations, `make swagger`, output committed, served at `/swagger/` behind `swagger.enabled` and basic auth, off by default | First built in go-identity |
+| 2026-10-27 | SPEC 9 | `listquery`, `scope`, `httpx`, `database` and the rest of `internal/platform` are copied from go-identity | They move to go-sdk together when a third service needs them or a fix has to land in both copies |
+| 2026-10-27 | SPEC 10 | List filter syntax is go-identity's: `field=value`, `field=value;like` (`;` percent-encoded), repeatable `sort=field,DIR`; ranges and search are endpoint-owned params | The same query string works against both services |
+| 2026-10-27 | SPEC 11 | The template integrates with go-identity by contract only: JWKS, `authz` `source: identity` with a service-client token, permission keys in identity's catalog; no Go import; `/v1/internal` lookups are a README recipe | Identity always runs as its own container; mounted mode is unsupported until a client needs a single process |
+| 2026-10-27 | SPEC 12 | The `identity` Compose profile builds go-identity from a sibling checkout (`IDENTITY_SRC`) | Until an image is published to GHCR |
 | 2026-11-05 | T0.1 | `config.yaml` keeps go-identity's `database.leader.max_retries`, `database.health` and `validator` blocks, which the SPEC 1.3 sample omits | `/readyz` reads the leader's health check, and the validator block lets the module `Deps` use it without another config change |
 | 2026-11-05 | T0.1 | Compose Postgres logs in as `app` directly | The bootstrap script that creates the `app` role and schema arrives with migrations (T0.2) |
 | 2026-11-05 | T0.1 | `server worker` holds a database connection and waits for SIGTERM | The plan's "empty runner": the outbox dispatcher and cleanup job join it in T0.6 |

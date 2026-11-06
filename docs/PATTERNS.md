@@ -100,3 +100,52 @@ err := database.WithTx(ctx, s.db, func(ctx context.Context) error {
 
 Senders must tolerate duplicates: a crash between sending and recording the send resends. A payload may carry
 `expires_at`; a row past it is never sent.
+
+## Handlers
+
+A handler decodes strictly (an unknown field is a 400 naming it), validates with the `json` field names, calls the
+service and returns a DTO, never the row struct. `httpx.Handle` writes the status and the envelope:
+
+```go
+func (h *Handler) create(r *http.Request) (any, error) {
+    var in CreateNoteRequest
+    if err := httpx.DecodeJSON(r, &in); err != nil {
+        return nil, err
+    }
+    if err := h.v.ValidateStruct(&in); err != nil {
+        return nil, err
+    }
+    n, err := h.svc.Create(r.Context(), &NewNote{Title: in.Title, Body: in.Body, Status: in.Status, Pinned: in.Pinned})
+    if err != nil {
+        return nil, err
+    }
+    return &response.Success{HTTPStatusCode: http.StatusCreated, Data: newNoteResponse(n)}, nil
+}
+```
+
+Permissions are route middleware (`middleware.RequirePermission`, `middleware.RequireAny`); the tenant and owner come
+from the token, never the body. Updates read `If-Match` with `httpx.Version` (missing: 428, stale: 409). Every
+handler carries swag annotations, and `make swagger` regenerates `api/swagger/`.
+
+## List endpoints
+
+One `listquery.ListParseConfig` per list, in the service. The handler parses for a fast 400; the service validates
+again, so a second caller can't skip the allow-lists:
+
+```go
+listquery.ListParseConfig{
+    MaxSize:             cfg.ListMaxSize,
+    AllowedSortFields:   []string{"title", "status", "pinned", "created_at", "updated_at"},
+    AllowedFilterFields: []string{"title", "status", "pinned", "owner_id"},
+    AllowedParams:       []string{"search", "created_from", "created_to"}, // endpoint-owned, read by the handler
+}
+```
+
+`tenant_id` is never a filter: the repository adds it from the context. A filter that widens scope (`owner_id`) checks
+its `:any` permission in the service. Each query key gets an `@Param` line.
+
+## Calling another service
+
+A module that needs data from outside (identity's `/v1/internal`, another module) declares a small interface in its
+own package and receives it in `Deps`; `internal/app` implements it. The module's tests use a fake. The README's
+"Call identity's internal API" section has the full example.
