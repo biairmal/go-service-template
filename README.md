@@ -31,6 +31,9 @@ make check   # format, lint, unit tests, coverage, govulncheck
 curl -sk https://localhost/readyz
 ```
 
+If `make check` fails in `govulncheck` on a fresh copy, an advisory was published after the template's last
+release: `go get <module>@<fixed version>` as the report names it, then `go mod tidy`.
+
 `gonew` rewrites the module path and imports; nothing else needs editing to run. Before the first deploy, rename
 what is still the template's:
 
@@ -128,31 +131,52 @@ A module is one package under `internal/module/<name>`: `module.go` (constructor
 each other (`make test` fails if one does; see [Call identity's internal API](#call-identitys-internal-api) for
 the port-and-adapter way around it). Below, `task` stands for your module.
 
-1. **Copy the example.** `cp -r internal/module/note internal/module/task`, then in the copy:
-   - rename the package to `task`, the types (`Note` → `Task`, `NoteResponse` → `TaskResponse`, …) and the
-     route (`rt.API.Route("/tasks", …)` in `module.go`);
-   - rename the permission keys in `module.go` (`tasks:read`, `tasks:read:any`, `tasks:write`, `tasks:write:any`),
-     or drop the `:any` pair if every caller sees the whole tenant;
-   - change the table name in `repository.go` and the fields in `model.go`, `dto.go` and the handlers;
-   - update the list config in `service.go` (sortable fields, filters, extra params);
-   - regenerate the repository mock: `go generate ./internal/module/task` (writes `mock_repository_test.go`).
-2. **Add the table:** `make migrate-create name=task`, then write it as in
-   [Add a migration](#add-a-migration). Keep the base columns of `migrations/*_note.sql`: `id`, `tenant_id`,
-   `owner_id` (if owner-scoped), `version`, `created_at`, `updated_at`, `created_by`, and an index that starts with
-   `tenant_id`.
-3. **Add the config block.** In `internal/app/config.go`, add `Task task.Config \`mapstructure:"task"\`` to
-   `ModulesConfig` and the row `{"modules.task", c.Modules.Task.Validate}` to `sections()`; in
-   `config/config.yaml`, add `task:` under `modules:` with its values.
-4. **Register it:** one line in `buildModules` in `internal/app/module.go`:
-   `task.New(cfg.Modules.Task, task.Deps{DB: deps.DB, V: deps.V, Authz: deps.Authz}),`
-5. **Register the permissions in identity.** Every key in `module.go` goes into identity's
-   `modules.rbac.permissions` and into the roles that should hold it (`modules.rbac.roles`). Locally that file is
-   [deploy/compose/identity.yaml](deploy/compose/identity.yaml); elsewhere it is identity's own config. Role
-   changes reach existing tenants only through identity's role API: the config seeds new tenants.
-6. **Docs and checks.** Update the swag annotations on each handler (`@Tags`, `@Router`, `@Param`), then
-   `make swagger`, `make check` and `make test-integration`. Commit `api/swagger/`.
+1. **Copy the example and rename it.** From the repo root:
 
-With auth off you can try it at once: `make run`, then `curl localhost:8080/v1/tasks`.
+   ```bash
+   cp -r internal/module/note internal/module/task
+   rm internal/module/task/mock_repository_test.go          # regenerated below
+   perl -pi -e 's/Notes/Tasks/g; s/notes/tasks/g; s/Note/Task/g; s/note/task/g' internal/module/task/*.go
+   ```
+
+   That renames the package, types, route (`/tasks`), table and permission keys (`tasks:read`, `tasks:read:any`,
+   `tasks:write`, `tasks:write:any`; drop the `:any` pair if every caller sees the whole tenant). Read the diff:
+   the rename is blind.
+2. **Strip what is specific to notes**, in the code *and* the tests (they assert on these fields too):
+   - fields `body`, `status`, `pinned` in `model.go`, `dto.go`, `repository.go` (columns), `service.go` (the
+     `typeFilters` check) and the handlers; add your own;
+   - the list extras: `ListExtra` (`search`, `created_from`, `created_to`), `queryTime` in `handler.go`,
+     `ListExtra.rangeConditions` in `service.go` and the `search` argument of `Repository.List`. Keep them only if your list needs them;
+   - the list config in `service.go`: `AllowedSortFields`, `AllowedFilterFields`, `AllowedParams`;
+   - the swag annotations: `@Description` text, and every `@Param` for a query key you removed (a stale one
+     documents a parameter that returns 400);
+   - `list_integration_test.go` seeds note rows: port its fixture or replace it with your own list cases.
+
+   Then `go generate ./internal/module/task` (writes `mock_repository_test.go`; the first run downloads mockgen)
+   and `make lint`. Expect `lll` (120 columns, comments and test tables included) to flag lines the longer name
+   pushed over, and `gocritic` to flag a `switch` left with one case.
+3. **Add the table:** `make migrate-create name=task` (needs no database) writes
+   `migrations/<UTC timestamp>_task.sql` with placeholder `SELECT` statements. Replace them, copying
+   `migrations/*_note.sql`: the base columns `id` (`gen_random_uuid()`), `tenant_id`, `owner_id` (if owner-scoped),
+   `version`, `created_at`, `updated_at`, `created_by`; an index that starts with `tenant_id`; a `-- +goose Down`
+   that drops the table.
+4. **Add the config block.** In `internal/app/config.go`, import the package, add
+   `Task task.Config \`mapstructure:"task"\`` to `ModulesConfig` and the row `{"modules.task", c.Modules.Task.Validate}`
+   to `sections()`; in `config/config.yaml`, add `task:` under `modules:` with its values. A value that differs per
+   environment is `${VAR:default}` and gets a line in `.env.example`. Run `make format`.
+5. **Register it:** import the package in `internal/app/module.go` and add one entry to the `[]Module{…}` list in
+   `buildModules` (routes register in list order):
+   `task.New(cfg.Modules.Task, task.Deps{DB: deps.DB, V: deps.V, Authz: deps.Authz}),`
+6. **Register the permissions in identity.** Every key in `module.go` goes into identity's
+   `modules.rbac.permissions` and into the roles that should hold it (`modules.rbac.roles`); the template gives
+   `admin` all four and `member` only `:read` and `:write`. Locally that file is
+   [deploy/compose/identity.yaml](deploy/compose/identity.yaml); elsewhere it is identity's own config. The config
+   seeds new tenants only: existing tenants get new permissions through identity's role API.
+7. **Docs and checks.** `make swagger` (rewrites `api/swagger/docs.go` and `swagger.json`; commit both), add the
+   endpoints to the [Endpoints](#endpoints) table, then `make check` and `make test-integration`.
+
+Try it with auth off: with `make up` running, `make migrate-up` (the new table; `serve` refuses to start while the
+schema is behind), `make run`, then `curl localhost:8080/v1/tasks`.
 
 **A new service client** (a second template service calling identity) needs its own entry in identity's
 `modules.auth.service_clients`: an `id` and the argon2id hash of a fresh secret. Generate both with Docker:
