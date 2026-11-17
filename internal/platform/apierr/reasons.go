@@ -10,6 +10,7 @@ type Reason string
 const (
 	ReasonPermissionNotHeld Reason = "PERMISSION_NOT_HELD"
 	ReasonVersionConflict   Reason = "VERSION_CONFLICT"
+	ReasonTooManyRows       Reason = "TOO_MANY_ROWS"
 )
 
 // reasonCodes maps each error reason to the errorz code that selects its HTTP
@@ -17,4 +18,5 @@ const (
 var reasonCodes = map[Reason]string{
 	ReasonPermissionNotHeld: errorz.CodeForbidden,
 	ReasonVersionConflict:   errorz.CodeConflict,
+	ReasonTooManyRows:       errorz.CodeBadRequest,
 }

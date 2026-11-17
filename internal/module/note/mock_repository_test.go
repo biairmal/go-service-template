@@ -42,6 +42,21 @@ func (m *MockRepository) EXPECT() *MockRepositoryMockRecorder {
 	return m.recorder
 }
 
+// BulkDelete mocks base method.
+func (m *MockRepository) BulkDelete(ctx context.Context, f repository.Filter, search string, owners Owners, limit int) ([]uuid.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BulkDelete", ctx, f, search, owners, limit)
+	ret0, _ := ret[0].([]uuid.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// BulkDelete indicates an expected call of BulkDelete.
+func (mr *MockRepositoryMockRecorder) BulkDelete(ctx, f, search, owners, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BulkDelete", reflect.TypeOf((*MockRepository)(nil).BulkDelete), ctx, f, search, owners, limit)
+}
+
 // Create mocks base method.
 func (m *MockRepository) Create(ctx context.Context, n *NewNote) (*Note, error) {
 	m.ctrl.T.Helper()

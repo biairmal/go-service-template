@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/biairmal/go-service-template/internal/platform/apierr"
+	"github.com/biairmal/go-service-template/internal/platform/database"
 	"github.com/biairmal/go-service-template/internal/platform/scope"
 )
 
@@ -36,14 +37,19 @@ type Repository interface {
 	Update(ctx context.Context, id uuid.UUID, version int, p *Patch, owners Owners) (*Note, error)
 	// Delete removes one note, or returns errorz.NotFound.
 	Delete(ctx context.Context, id uuid.UUID, owners Owners) error
+	// BulkDelete removes every note in scope matching f and search, in one
+	// transaction, and returns their IDs. More than limit matches deletes
+	// nothing and returns TOO_MANY_ROWS.
+	BulkDelete(ctx context.Context, f repository.Filter, search string, owners Owners, limit int) ([]uuid.UUID, error)
 }
 
 // NewRepository returns the SQL Repository over db.
 func NewRepository(db *sqlkit.DB) Repository {
-	return &sqlRepository{base: reposql.NewBaseRepository(db, "note")}
+	return &sqlRepository{db: db, base: reposql.NewBaseRepository(db, "note")}
 }
 
 type sqlRepository struct {
+	db   *sqlkit.DB
 	base *reposql.BaseRepository
 }
 
@@ -91,15 +97,9 @@ func (r *sqlRepository) List(
 	if opts == nil {
 		opts = &repository.ListOptions{}
 	}
-	conds, err := scopeConditions(ctx, owners)
+	where, args, err := scopedWhere(ctx, opts.Filter, search, owners)
 	if err != nil {
 		return nil, 0, err
-	}
-	where, args := reposql.BuildWhereClause(reposql.Postgres{},
-		repository.Filter{Conditions: append(conds, opts.Filter.Conditions...)})
-	if search != "" {
-		args = append(args, "%"+search+"%")
-		where += fmt.Sprintf(" AND (title ILIKE $%d OR body ILIKE $%d)", len(args), len(args))
 	}
 	conn := r.base.GetReadConnection(ctx)
 
@@ -187,6 +187,62 @@ func (r *sqlRepository) Delete(ctx context.Context, id uuid.UUID, owners Owners)
 		return errNotFound()
 	}
 	return nil
+}
+
+func (r *sqlRepository) BulkDelete(
+	ctx context.Context, f repository.Filter, search string, owners Owners, limit int,
+) ([]uuid.UUID, error) {
+	where, args, err := scopedWhere(ctx, f, search, owners)
+	if err != nil {
+		return nil, err
+	}
+	args = append(args, limit+1)
+	query := fmt.Sprintf(`DELETE FROM note WHERE id IN (SELECT id FROM note %s LIMIT $%d FOR UPDATE) RETURNING id`,
+		where, len(args))
+	var ids []uuid.UUID
+	err = database.WithTx(ctx, r.db, func(ctx context.Context) error {
+		rows, err := r.base.GetConnection(ctx).QueryContext(ctx, query, args...)
+		if err != nil {
+			return errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage("note: bulk delete")
+		}
+		defer func() { _ = rows.Close() }()
+		for rows.Next() {
+			var id uuid.UUID
+			if err := rows.Scan(&id); err != nil {
+				return errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage("note: bulk delete scan")
+			}
+			ids = append(ids, id)
+		}
+		if err := rows.Err(); err != nil {
+			return errorz.Wrap(err).WithCode(errorz.CodeInternal).WithMessage("note: bulk delete rows")
+		}
+		if len(ids) > limit {
+			return apierr.New(apierr.ReasonTooManyRows) // rolls the delete back
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
+// scopedWhere is the WHERE clause and args for f within the caller's scope,
+// plus a case-insensitive title-or-body match when search is set.
+func scopedWhere(
+	ctx context.Context, f repository.Filter, search string, owners Owners,
+) (where string, args []any, err error) {
+	conds, err := scopeConditions(ctx, owners)
+	if err != nil {
+		return "", nil, err
+	}
+	where, args = reposql.BuildWhereClause(reposql.Postgres{},
+		repository.Filter{Conditions: append(conds, f.Conditions...)})
+	if search != "" {
+		args = append(args, "%"+search+"%")
+		where += fmt.Sprintf(" AND (title ILIKE $%d OR body ILIKE $%d)", len(args), len(args))
+	}
+	return where, args, nil
 }
 
 // scopeOf returns the caller's tenant and, for OwnNotes, the caller as owner

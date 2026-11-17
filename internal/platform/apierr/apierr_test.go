@@ -14,6 +14,7 @@ func TestReasonStatuses(t *testing.T) {
 	want := map[Reason]int{
 		ReasonPermissionNotHeld: http.StatusForbidden,
 		ReasonVersionConflict:   http.StatusConflict,
+		ReasonTooManyRows:       http.StatusBadRequest,
 	}
 	if len(want) != len(reasonCodes) {
 		t.Fatalf("test covers %d reasons, table has %d", len(want), len(reasonCodes))

@@ -102,6 +102,33 @@ func TestListQueryPatterns(t *testing.T) {
 				t.Errorf("owner_id condition = %+v, owners %v; want the UUID with AnyOwner", c, l.owners)
 			}
 		}},
+		{"id in, typed", "id=" + owner.String() + "%3Bin", []string{PermRead}, func(t *testing.T, l listed) {
+			if c := l.condition("id", repository.FilterOperatorIn); c == nil || len(c.Values) != 1 || c.Values[0] != owner {
+				t.Errorf("id condition = %+v, want in (the UUID)", c)
+			}
+		}},
+		{"title ne", "title=x%3Bne", []string{PermRead}, func(t *testing.T, l listed) {
+			if c := l.condition("title", repository.FilterOperatorNe); c == nil || c.Value != "x" {
+				t.Errorf("title condition = %+v, want ne x", c)
+			}
+		}},
+		{
+			"created_at between, typed", "created_at=2026-01-01,2026-02-01%3Bbetween",
+			[]string{PermRead},
+			func(t *testing.T, l listed) {
+				if c := l.condition("created_at", repository.FilterOperatorGte); c == nil || c.Value != day("2026-01-01") {
+					t.Errorf("created_at >= condition = %+v", c)
+				}
+				if c := l.condition("created_at", repository.FilterOperatorLte); c == nil || c.Value != day("2026-02-01") {
+					t.Errorf("created_at <= condition = %+v", c)
+				}
+			},
+		},
+		{"created_at gt", "created_at=2026-01-01%3Bgt", []string{PermRead}, func(t *testing.T, l listed) {
+			if c := l.condition("created_at", repository.FilterOperatorGt); c == nil || c.Value != day("2026-01-01") {
+				t.Errorf("created_at > condition = %+v", c)
+			}
+		}},
 		{"plain caller is owner-scoped", "", []string{PermRead}, func(t *testing.T, l listed) {
 			if l.owners != OwnNotes || len(l.opts.Sorts) != 0 {
 				t.Errorf("owners = %v, sorts %v; want OwnNotes and the repository's default order", l.owners, l.opts.Sorts)
@@ -134,7 +161,13 @@ func TestListQueryRejects(t *testing.T) {
 		{"bad pinned", "pinned=maybe", []string{PermRead}, http.StatusBadRequest},
 		{"bad status", "status=deleted", []string{PermRead}, http.StatusBadRequest},
 		{"like on status", "status=draft%3Blike", []string{PermRead}, http.StatusBadRequest},
+		{"range on title", "title=a,b%3Bbetween", []string{PermRead}, http.StatusBadRequest},
+		{"like on created_at", "created_at=2026%3Blike", []string{PermRead}, http.StatusBadRequest},
+		{"between with one part", "created_at=2026-01-01%3Bbetween", []string{PermRead}, http.StatusBadRequest},
+		{"bad created_at", "created_at=soon%3Bgt", []string{PermRead}, http.StatusBadRequest},
+		{"empty created_at", "created_at=%3Bgt", []string{PermRead}, http.StatusBadRequest},
 		{"bad owner_id", "owner_id=me", []string{PermReadAny}, http.StatusBadRequest},
+		{"bad id in", "id=nope%3Bin", []string{PermRead}, http.StatusBadRequest},
 		{"owner_id without notes:read:any", "owner_id=" + uuid.NewString(), []string{PermRead}, http.StatusForbidden},
 	}
 	for _, tt := range tests {
