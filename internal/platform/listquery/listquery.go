@@ -1,5 +1,5 @@
 // Package listquery provides a shared allow-list-based parser for HTTP list-endpoint
-// query parameters (pagination, sorting, and simple equality filters), so a
+// query parameters (pagination, sorting, and operator filters), so a
 // feature only needs to declare its allow-lists instead of reimplementing parsing.
 //
 // Every error is an errorz BadRequest (HTTP 400) with the offending query
@@ -7,8 +7,10 @@
 package listquery
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -38,15 +40,33 @@ const (
 	DefaultMaxSize = 100
 )
 
-// supportedFilterOperators whitelists which repository.FilterOperator values
-// a filter value's ";operator" suffix (see FilterValue) may select. Kept
-// intentionally short — eq (the default) and like are all any feature needs
-// today; add another go-sdk FilterOperator here (gt, in, ...) when a feature
-// actually needs it, not speculatively.
+// OperatorBetween is an inclusive range, "a,b". It is not a go-sdk operator:
+// ToListOptions expands it to gte a and lte b.
+const OperatorBetween repository.FilterOperator = "between"
+
+// MaxInValues caps the items of an "in" filter.
+const MaxInValues = 100
+
+// supportedFilterOperators whitelists which operators a filter value's
+// ";operator" suffix (see FilterValue) may select: go-sdk's operators plus
+// OperatorBetween.
 var supportedFilterOperators = map[repository.FilterOperator]bool{
-	repository.FilterOperatorEq:   true,
-	repository.FilterOperatorLike: true,
+	repository.FilterOperatorEq:        true,
+	repository.FilterOperatorNe:        true,
+	repository.FilterOperatorGt:        true,
+	repository.FilterOperatorGte:       true,
+	repository.FilterOperatorLt:        true,
+	repository.FilterOperatorLte:       true,
+	repository.FilterOperatorLike:      true,
+	repository.FilterOperatorIn:        true,
+	repository.FilterOperatorIsNull:    true,
+	repository.FilterOperatorIsNotNull: true,
+	OperatorBetween:                    true,
 }
+
+// defaultFieldOperators apply to a filter field missing from
+// ListParseConfig.FilterOperators.
+var defaultFieldOperators = []repository.FilterOperator{repository.FilterOperatorEq, repository.FilterOperatorLike}
 
 // ListParseConfig configures allow-listed sort/filter fields and pagination
 // bounds for ParseListParams. A feature typically only needs to set
@@ -57,13 +77,27 @@ var supportedFilterOperators = map[repository.FilterOperator]bool{
 // "search", "force"); any key that is neither reserved, a filter nor listed
 // there is rejected, so a typo or a forbidden filter never silently widens a
 // list.
+//
+// FilterOperators names the operators each filter field accepts, so a text
+// field cannot be range-filtered by mistake. A field missing from it accepts
+// eq and like.
 type ListParseConfig struct {
 	DefaultPage         int
 	DefaultSize         int
 	MaxSize             int
 	AllowedSortFields   []string
 	AllowedFilterFields []string
+	FilterOperators     map[string][]repository.FilterOperator
 	AllowedParams       []string
+}
+
+// allowsOperator reports whether field accepts op.
+func (c *ListParseConfig) allowsOperator(field string, op repository.FilterOperator) bool {
+	ops, ok := c.FilterOperators[field]
+	if !ok {
+		ops = defaultFieldOperators
+	}
+	return slices.Contains(ops, op)
 }
 
 // withDefaults returns a copy of c with zero-valued pagination fields filled
@@ -85,8 +119,13 @@ func (c ListParseConfig) withDefaults() *ListParseConfig { //nolint:gocritic // 
 // be matched with. A query value carries its operator inline as
 // "value;operator" (e.g. "Ali;like"); no ";operator" suffix defaults to
 // FilterOperatorEq, same as every filter before this existed.
+//
+// Values holds the items of an "in" filter (comma-separated, each item
+// URL-encoded by the client) and the two bounds of a "between" filter.
+// is_null and is_not_null ignore the value.
 type FilterValue struct {
 	Value    string
+	Values   []string
 	Operator repository.FilterOperator
 }
 
@@ -163,9 +202,15 @@ func ValidateListParams(params *ListParams, cfg *ListParseConfig) error {
 		}
 	}
 	allowedFilters := toSet(cfg.AllowedFilterFields)
-	for field := range params.Filters {
+	for field, fv := range params.Filters {
 		if !allowedFilters[field] {
 			return badParam(field, "filter not allowed")
+		}
+		if !cfg.allowsOperator(field, fv.Operator) {
+			return badParam(field, "operator not allowed: "+string(fv.Operator))
+		}
+		if err := checkShape(fv); err != nil {
+			return badParam(field, err.Error())
 		}
 	}
 	return nil
@@ -199,15 +244,7 @@ func ToListOptions(params *ListParams) *repository.ListOptions {
 
 	var conditions []repository.FilterCondition
 	for field, fv := range params.Filters {
-		value := fv.Value
-		if fv.Operator == repository.FilterOperatorLike {
-			value = "%" + value + "%"
-		}
-		conditions = append(conditions, repository.FilterCondition{
-			Field:    field,
-			Operator: fv.Operator,
-			Value:    value,
-		})
+		conditions = append(conditions, toConditions(field, fv)...)
 	}
 
 	var sorts []repository.Sort
@@ -224,6 +261,33 @@ func ToListOptions(params *ListParams) *repository.ListOptions {
 		Pagination: repository.Pagination{Limit: size, Offset: offset},
 		Sorts:      sorts,
 	}
+}
+
+// toConditions turns one filter into go-sdk conditions: like is wrapped
+// "%value%", in carries Values, between becomes gte and lte, and the null
+// checks carry no value.
+func toConditions(field string, fv FilterValue) []repository.FilterCondition {
+	cond := repository.FilterCondition{Field: field, Operator: fv.Operator, Value: fv.Value}
+	switch fv.Operator {
+	case repository.FilterOperatorLike:
+		cond.Value = "%" + fv.Value + "%"
+	case repository.FilterOperatorIn:
+		cond.Value = nil
+		for _, v := range fv.Values {
+			cond.Values = append(cond.Values, v)
+		}
+	case repository.FilterOperatorIsNull, repository.FilterOperatorIsNotNull:
+		cond.Value = nil
+	case OperatorBetween:
+		if len(fv.Values) != 2 {
+			return nil // checkShape rejects this before it gets here
+		}
+		return []repository.FilterCondition{
+			{Field: field, Operator: repository.FilterOperatorGte, Value: fv.Values[0]},
+			{Field: field, Operator: repository.FilterOperatorLte, Value: fv.Values[1]},
+		}
+	}
+	return []repository.FilterCondition{cond}
 }
 
 // parsePage parses the "page" query parameter, defaulting to cfg.DefaultPage.
@@ -306,6 +370,9 @@ func parseFilters(q url.Values, cfg *ListParseConfig) (map[string]FilterValue, e
 		if err != nil {
 			return nil, badParam(key, err.Error())
 		}
+		if !cfg.allowsOperator(key, fv.Operator) {
+			return nil, badParam(key, "operator not allowed: "+string(fv.Operator))
+		}
 		filters[key] = fv
 	}
 	return filters, nil
@@ -313,7 +380,7 @@ func parseFilters(q url.Values, cfg *ListParseConfig) (map[string]FilterValue, e
 
 // parseFilterValue splits raw on the first ";" into a value and an operator
 // suffix. No suffix (or an empty one, e.g. trailing ";") defaults to
-// FilterOperatorEq. An unrecognized operator is an error.
+// FilterOperatorEq. An unrecognized operator or a malformed value is an error.
 func parseFilterValue(raw string) (FilterValue, error) {
 	value, opStr, hasOp := strings.Cut(raw, ";")
 	if !hasOp || opStr == "" {
@@ -323,7 +390,36 @@ func parseFilterValue(raw string) (FilterValue, error) {
 	if !supportedFilterOperators[op] {
 		return FilterValue{}, fmt.Errorf("unsupported filter operator %q", opStr)
 	}
-	return FilterValue{Value: value, Operator: op}, nil
+	fv := FilterValue{Value: value, Operator: op}
+	switch op {
+	case repository.FilterOperatorIn, OperatorBetween:
+		for item := range strings.SplitSeq(value, ",") {
+			v, err := url.QueryUnescape(item)
+			if err != nil {
+				return FilterValue{}, fmt.Errorf("bad item encoding %q", item)
+			}
+			fv.Values = append(fv.Values, v)
+		}
+		fv.Value = ""
+	case repository.FilterOperatorIsNull, repository.FilterOperatorIsNotNull:
+		fv.Value = ""
+	}
+	return fv, checkShape(fv)
+}
+
+// checkShape checks the value count each operator needs.
+func checkShape(fv FilterValue) error {
+	switch fv.Operator {
+	case repository.FilterOperatorIn:
+		if len(fv.Values) == 0 || len(fv.Values) > MaxInValues {
+			return fmt.Errorf("in takes 1 to %d values", MaxInValues)
+		}
+	case OperatorBetween:
+		if len(fv.Values) != 2 || fv.Values[0] == "" || fv.Values[1] == "" {
+			return errors.New("between takes two values, a,b")
+		}
+	}
+	return nil
 }
 
 // toSet converts a string slice to a set for O(1) lookup. TenantField is

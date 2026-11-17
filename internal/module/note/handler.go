@@ -2,6 +2,8 @@ package note
 
 import (
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/biairmal/go-sdk/lib/authz"
@@ -35,6 +37,8 @@ func (h *Handler) Register(r chi.Router) {
 	write := middleware.RequirePermission(h.az, PermWrite)
 	r.With(write).Post("/", httpx.Handle(h.create))
 	r.With(read).Get("/", httpx.Handle(h.list))
+	r.With(read).Get("/options", httpx.Handle(h.options))
+	r.With(write).Post("/bulk-delete", httpx.Handle(h.bulkDelete))
 	r.With(read).Get("/{id}", httpx.Handle(h.get))
 	r.With(write).Patch("/{id}", httpx.Handle(h.update))
 	r.With(write).Delete("/{id}", httpx.Handle(h.delete))
@@ -74,17 +78,20 @@ func (h *Handler) create(r *http.Request) (any, error) {
 //
 //	@Summary     List notes
 //	@Description The caller's notes, or the tenant's with notes:read:any. Needs notes:read or notes:read:any.
-//	@Description Filters: field=value, or title=value%3Blike for contains (the ; must be percent-encoded).
-//	@Description Sortable: title, status, pinned, created_at, updated_at; default updated_at,DESC.
+//	@Description Filters: field=value;operator (the ; must be percent-encoded, %3B). No operator means eq.
+//	@Description between takes "a,b" (inclusive); in takes "a,b,c" (each item percent-encoded, at most 100).
+//	@Description Sortable: title, status, pinned, created_at, updated_at; repeatable; default updated_at,DESC.
 //	@Tags        notes
 //	@Produce     json
 //	@Param       page query int false "Page, 1-based"
 //	@Param       size query int false "Page size, max modules.note.list_max_size"
 //	@Param       sort         query []string false "field,ASC|DESC; repeatable" collectionFormat(multi)
-//	@Param       title        query string   false "Exact title, or value%3Blike for contains (case-sensitive)"
-//	@Param       status       query string   false "draft or archived"
-//	@Param       pinned       query bool     false "true or false"
-//	@Param       owner_id     query string   false "One owner's notes; needs notes:read:any"
+//	@Param       id           query string   false "Operators: eq, in. Note IDs"
+//	@Param       title        query string   false "Operators: eq, ne, like (contains, case-sensitive)"
+//	@Param       status       query string   false "Operators: eq. draft or archived"
+//	@Param       pinned       query bool     false "Operators: eq. true or false"
+//	@Param       owner_id     query string   false "Operators: eq. One owner's notes; needs notes:read:any"
+//	@Param       created_at   query string   false "Operators: gt, gte, lt, lte, between. RFC 3339 date or timestamp"
 //	@Param       search       query string   false "Title or body contains, case-insensitive"
 //	@Param       created_from query string   false "created_at >= this; RFC 3339 date or timestamp"
 //	@Param       created_to   query string   false "created_at < this; RFC 3339 date or timestamp"
@@ -97,15 +104,8 @@ func (h *Handler) create(r *http.Request) (any, error) {
 //	@Router      /v1/notes [get]
 func (h *Handler) list(r *http.Request) (any, error) {
 	q := r.URL.Query()
-	params, err := listquery.ParseListParams(q, &h.svc.listQuery)
+	params, extra, err := h.listQuery(q)
 	if err != nil {
-		return nil, err
-	}
-	extra := ListExtra{Search: q.Get("search")}
-	if extra.CreatedFrom, err = queryTime(q.Get("created_from"), "created_from"); err != nil {
-		return nil, err
-	}
-	if extra.CreatedTo, err = queryTime(q.Get("created_to"), "created_to"); err != nil {
 		return nil, err
 	}
 	page, err := h.svc.List(r.Context(), params, extra)
@@ -120,6 +120,149 @@ func (h *Handler) list(r *http.Request) (any, error) {
 		Items: items, Total: page.Total, Page: page.Page, Size: page.Size, TotalPages: page.TotalPages,
 		HasPrev: page.HasPrev, HasNext: page.HasNext,
 	}, nil
+}
+
+// options answers GET /v1/notes/options with one page of {value, label}
+// choices for a dropdown.
+//
+//	@Summary     Note options
+//	@Description Notes as {value: id, label: title} for dropdowns, in the list's scope, ordered by title then id.
+//	@Description With ids, returns exactly those notes (search and paging ignored); unreachable ids are left out.
+//	@Tags        notes
+//	@Produce     json
+//	@Param       search query string false "Title or body contains, case-insensitive"
+//	@Param       ids    query string false "Comma-separated note IDs, at most 100"
+//	@Param       page   query int    false "Page, 1-based"
+//	@Param       size   query int    false "Page size, default 20, max 50"
+//	@Security    BearerAuth
+//	@Success     200 {object} response.BaseResponse[note.OptionPageResponse]
+//	@Failure     400 {object} response.BaseResponse[any] "Unknown key, bad page or size, bad or too many ids"
+//	@Failure     401 {object} response.BaseResponse[any] "Missing, invalid or expired token"
+//	@Failure     403 {object} response.BaseResponse[any] "No notes:read or notes:read:any"
+//	@Failure     500 {object} response.BaseResponse[any] "Internal error"
+//	@Router      /v1/notes/options [get]
+func (h *Handler) options(r *http.Request) (any, error) {
+	q := r.URL.Query()
+	params, err := listquery.ParseListParams(q, &h.svc.optsQuery)
+	if err != nil {
+		return nil, err
+	}
+	var ids []uuid.UUID
+	if raw := q.Get("ids"); raw != "" {
+		for s := range strings.SplitSeq(raw, ",") {
+			id, err := uuid.Parse(strings.TrimSpace(s))
+			if err != nil {
+				return nil, badQuery("ids", "must be comma-separated UUIDs")
+			}
+			ids = append(ids, id)
+		}
+	}
+	page, err := h.svc.Options(r.Context(), params, q.Get("search"), ids)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]*OptionResponse, len(page.Items))
+	for i, n := range page.Items {
+		items[i] = &OptionResponse{Value: n.ID.String(), Label: n.Title}
+	}
+	return &OptionPageResponse{
+		Items: items, Total: page.Total, Page: page.Page, Size: page.Size, TotalPages: page.TotalPages,
+		HasPrev: page.HasPrev, HasNext: page.HasNext,
+	}, nil
+}
+
+// bulkDelete answers POST /v1/notes/bulk-delete with how many notes went and
+// which selected IDs did not.
+//
+//	@Summary     Delete many notes
+//	@Description Deletes the given ids (1 to 100), or every note matching filter (a GET /v1/notes query string;
+//	@Description page, size and sort ignored; at most 1000 rows, else 400 TOO_MANY_ROWS). Send exactly one.
+//	@Description One transaction, no If-Match: last write wins. Ids out of reach come back as not_found.
+//	@Tags        notes
+//	@Accept      json
+//	@Produce     json
+//	@Param       body body note.BulkDeleteRequest true "ids or filter"
+//	@Security    BearerAuth
+//	@Success     200 {object} response.BaseResponse[note.BulkDeleteResponse]
+//	@Failure     400 {object} response.BaseResponse[any] "Neither or both fields, bad ids or filter, TOO_MANY_ROWS"
+//	@Failure     401 {object} response.BaseResponse[any] "Missing, invalid or expired token"
+//	@Failure     403 {object} response.BaseResponse[any] "No notes:write, or owner_id filter without notes:write:any"
+//	@Failure     500 {object} response.BaseResponse[any] "Internal error"
+//	@Router      /v1/notes/bulk-delete [post]
+func (h *Handler) bulkDelete(r *http.Request) (any, error) {
+	var in BulkDeleteRequest
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		return nil, err
+	}
+	if err := h.v.ValidateStruct(&in); err != nil {
+		return nil, err
+	}
+	if (in.IDs != nil) == (in.Filter != nil) {
+		return nil, badQuery("ids", "send exactly one of ids or filter")
+	}
+	if in.Filter != nil {
+		return h.bulkDeleteMatching(r, *in.Filter)
+	}
+	if len(in.IDs) == 0 {
+		return nil, badQuery("ids", "select at least one note")
+	}
+	ids := make([]uuid.UUID, len(in.IDs))
+	for i, s := range in.IDs {
+		ids[i] = uuid.MustParse(s) // validated as UUIDs above
+	}
+	deleted, err := h.svc.BulkDeleteIDs(r.Context(), ids)
+	if err != nil {
+		return nil, err
+	}
+	gone := make(map[uuid.UUID]bool, len(deleted))
+	for _, id := range deleted {
+		gone[id] = true
+	}
+	out := &BulkDeleteResponse{Affected: len(deleted), Failed: []BulkDeleteFailure{}}
+	for _, id := range ids {
+		if !gone[id] {
+			out.Failed = append(out.Failed, BulkDeleteFailure{ID: id.String(), Reason: "not_found"})
+		}
+	}
+	return out, nil
+}
+
+// bulkDeleteMatching deletes every note the list query string filter matches.
+func (h *Handler) bulkDeleteMatching(r *http.Request, filter string) (any, error) {
+	// ";" only ever separates a value from its operator, and ParseQuery rejects it raw.
+	q, err := url.ParseQuery(strings.ReplaceAll(filter, ";", "%3B"))
+	if err != nil {
+		return nil, badQuery("filter", "must be a query string")
+	}
+	for _, k := range []string{"page", "size", "sort"} {
+		q.Del(k)
+	}
+	params, extra, err := h.listQuery(q)
+	if err != nil {
+		return nil, err
+	}
+	deleted, err := h.svc.BulkDeleteMatching(r.Context(), params, extra)
+	if err != nil {
+		return nil, err
+	}
+	return &BulkDeleteResponse{Affected: len(deleted), Failed: []BulkDeleteFailure{}}, nil
+}
+
+// listQuery parses the GET /v1/notes query: the generic list params and the
+// note-specific search and created range.
+func (h *Handler) listQuery(q url.Values) (*listquery.ListParams, ListExtra, error) {
+	params, err := listquery.ParseListParams(q, &h.svc.listQuery)
+	if err != nil {
+		return nil, ListExtra{}, err
+	}
+	extra := ListExtra{Search: q.Get("search")}
+	if extra.CreatedFrom, err = queryTime(q.Get("created_from"), "created_from"); err != nil {
+		return nil, ListExtra{}, err
+	}
+	if extra.CreatedTo, err = queryTime(q.Get("created_to"), "created_to"); err != nil {
+		return nil, ListExtra{}, err
+	}
+	return params, extra, nil
 }
 
 // get answers GET /v1/notes/{id}.

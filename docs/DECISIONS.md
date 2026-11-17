@@ -68,3 +68,11 @@ Choices made where the SPEC was silent or unclear. One line each: `date · task 
 | 2026-11-05 | T3.3 | Both Deployments carry a `checksum/config` annotation of the rendered ConfigMap | Config arrives through `envFrom`, read only at start; without it a `helm upgrade` that changes config leaves the old pods running the old values (seen on kind). go-identity's chart has the same gap |
 | 2026-11-05 | T3.3 | The kind install runs in a namespace enforcing Pod Security `restricted` | Closest local check of OpenShift `restricted-v2`; the real OpenShift install is T4.3 |
 | 2026-11-05 | T3.4 | Release builds also carry the `sha-<short>` tag, and the image job runs only after `check` passes on a push | Same as go-identity's job; every image traces back to a commit |
+| 2026-11-17 | R1 | `listquery` accepts every go-sdk operator plus `between`; each field lists its operators in `FilterOperators`, and a field left out takes only `eq` and `like` | A text field cannot be range-filtered by mistake, and existing configs keep working unchanged |
+| 2026-11-17 | R1 | `in` items are split on `,` and each is percent-decoded once more, so a comma inside an item is sent as `%2C` (encoded twice on the wire) | Keeps one string per filter key and the existing `value;op` contract |
+| 2026-11-17 | R1 | Notes keep `created_from`/`created_to` beside the new `created_at` operators | Existing clients use them |
+| 2026-11-17 | R2 | `GET /v1/notes/options` reads whole rows through the list query | One repository method and one scope rule; switch to a two-column query if bodies get large |
+| 2026-11-17 | R3 | The bulk-delete cap reason is `TOO_MANY_ROWS`, not `too_many_rows` as proposed | Every `meta.reason` in this API is upper snake case |
+| 2026-11-17 | R3 | Bulk delete writes no audit entry per row | The template has no audit log; a module that adds one writes the entries in the same transaction |
+| 2026-11-17 | R3 | A `filter` with a raw `;` is accepted (it is percent-encoded before parsing) | Go's `url.ParseQuery` rejects `;`, which only ever separates a value from its operator here |
+| 2026-11-17 | R1 | Notes also accept `id` (`eq`, `in`) as a filter, beyond the proposal | The web-starter async filter picks notes from `/v1/notes/options` and filters the list by their ids |

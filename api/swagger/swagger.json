@@ -15,7 +15,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "The caller's notes, or the tenant's with notes:read:any. Needs notes:read or notes:read:any.\nFilters: field=value, or title=value%3Blike for contains (the ; must be percent-encoded).\nSortable: title, status, pinned, created_at, updated_at; default updated_at,DESC.",
+                "description": "The caller's notes, or the tenant's with notes:read:any. Needs notes:read or notes:read:any.\nFilters: field=value;operator (the ; must be percent-encoded, %3B). No operator means eq.\nbetween takes \"a,b\" (inclusive); in takes \"a,b,c\" (each item percent-encoded, at most 100).\nSortable: title, status, pinned, created_at, updated_at; repeatable; default updated_at,DESC.",
                 "produces": [
                     "application/json"
                 ],
@@ -48,26 +48,38 @@
                     },
                     {
                         "type": "string",
-                        "description": "Exact title, or value%3Blike for contains (case-sensitive)",
+                        "description": "Operators: eq, in. Note IDs",
+                        "name": "id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Operators: eq, ne, like (contains, case-sensitive)",
                         "name": "title",
                         "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "draft or archived",
+                        "description": "Operators: eq. draft or archived",
                         "name": "status",
                         "in": "query"
                     },
                     {
                         "type": "boolean",
-                        "description": "true or false",
+                        "description": "Operators: eq. true or false",
                         "name": "pinned",
                         "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "One owner's notes; needs notes:read:any",
+                        "description": "Operators: eq. One owner's notes; needs notes:read:any",
                         "name": "owner_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Operators: gt, gte, lt, lte, between. RFC 3339 date or timestamp",
+                        "name": "created_at",
                         "in": "query"
                     },
                     {
@@ -171,6 +183,144 @@
                     },
                     "403": {
                         "description": "No notes:write",
+                        "schema": {
+                            "$ref": "#/definitions/response.BaseResponse-any"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/response.BaseResponse-any"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/notes/bulk-delete": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Deletes the given ids (1 to 100), or every note matching filter (a GET /v1/notes query string;\npage, size and sort ignored; at most 1000 rows, else 400 TOO_MANY_ROWS). Send exactly one.\nOne transaction, no If-Match: last write wins. Ids out of reach come back as not_found.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notes"
+                ],
+                "summary": "Delete many notes",
+                "parameters": [
+                    {
+                        "description": "ids or filter",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_module_note.BulkDeleteRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.BaseResponse-internal_module_note_BulkDeleteResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Neither or both fields, bad ids or filter, TOO_MANY_ROWS",
+                        "schema": {
+                            "$ref": "#/definitions/response.BaseResponse-any"
+                        }
+                    },
+                    "401": {
+                        "description": "Missing, invalid or expired token",
+                        "schema": {
+                            "$ref": "#/definitions/response.BaseResponse-any"
+                        }
+                    },
+                    "403": {
+                        "description": "No notes:write, or owner_id filter without notes:write:any",
+                        "schema": {
+                            "$ref": "#/definitions/response.BaseResponse-any"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/response.BaseResponse-any"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/notes/options": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Notes as {value: id, label: title} for dropdowns, in the list's scope, ordered by title then id.\nWith ids, returns exactly those notes (search and paging ignored); unreachable ids are left out.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notes"
+                ],
+                "summary": "Note options",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Title or body contains, case-insensitive",
+                        "name": "search",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated note IDs, at most 100",
+                        "name": "ids",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page, 1-based",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size, default 20, max 50",
+                        "name": "size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.BaseResponse-internal_module_note_OptionPageResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Unknown key, bad page or size, bad or too many ids",
+                        "schema": {
+                            "$ref": "#/definitions/response.BaseResponse-any"
+                        }
+                    },
+                    "401": {
+                        "description": "Missing, invalid or expired token",
+                        "schema": {
+                            "$ref": "#/definitions/response.BaseResponse-any"
+                        }
+                    },
+                    "403": {
+                        "description": "No notes:read or notes:read:any",
                         "schema": {
                             "$ref": "#/definitions/response.BaseResponse-any"
                         }
@@ -387,6 +537,48 @@
         }
     },
     "definitions": {
+        "internal_module_note.BulkDeleteFailure": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string",
+                    "example": "not_found"
+                }
+            }
+        },
+        "internal_module_note.BulkDeleteRequest": {
+            "type": "object",
+            "properties": {
+                "filter": {
+                    "type": "string",
+                    "example": "title=foo;like\u0026created_at=2026-01-01,2026-02-01;between"
+                },
+                "ids": {
+                    "type": "array",
+                    "maxItems": 100,
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "internal_module_note.BulkDeleteResponse": {
+            "type": "object",
+            "properties": {
+                "affected": {
+                    "type": "integer"
+                },
+                "failed": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_module_note.BulkDeleteFailure"
+                    }
+                }
+            }
+        },
         "internal_module_note.CreateNoteRequest": {
             "type": "object",
             "required": [
@@ -473,6 +665,46 @@
                 }
             }
         },
+        "internal_module_note.OptionPageResponse": {
+            "type": "object",
+            "properties": {
+                "has_next": {
+                    "type": "boolean"
+                },
+                "has_prev": {
+                    "type": "boolean"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_module_note.OptionResponse"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "total_pages": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_module_note.OptionResponse": {
+            "type": "object",
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_module_note.UpdateNoteRequest": {
             "type": "object",
             "properties": {
@@ -512,6 +744,24 @@
                 }
             }
         },
+        "response.BaseResponse-internal_module_note_BulkDeleteResponse": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "data": {
+                    "$ref": "#/definitions/internal_module_note.BulkDeleteResponse"
+                },
+                "error": {},
+                "message": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
+                }
+            }
+        },
         "response.BaseResponse-internal_module_note_NotePageResponse": {
             "type": "object",
             "properties": {
@@ -538,6 +788,24 @@
                 },
                 "data": {
                     "$ref": "#/definitions/internal_module_note.NoteResponse"
+                },
+                "error": {},
+                "message": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
+                }
+            }
+        },
+        "response.BaseResponse-internal_module_note_OptionPageResponse": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "data": {
+                    "$ref": "#/definitions/internal_module_note.OptionPageResponse"
                 },
                 "error": {},
                 "message": {

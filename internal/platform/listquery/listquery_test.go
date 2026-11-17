@@ -3,6 +3,8 @@ package listquery
 import (
 	"errors"
 	"net/url"
+	"reflect"
+	"strings"
 	"testing"
 
 	common "github.com/biairmal/go-sdk/lib/common/dto"
@@ -358,4 +360,86 @@ func TestParseListParamsRejectsUnknownAndTenantKeys(t *testing.T) {
 	if err := ValidateListParams(params, &cfg); err == nil {
 		t.Error("ValidateListParams accepted a tenant_id filter")
 	}
+}
+
+func TestFilterOperators(t *testing.T) {
+	ops := []repository.FilterOperator{
+		repository.FilterOperatorEq, repository.FilterOperatorNe, repository.FilterOperatorGt,
+		repository.FilterOperatorGte, repository.FilterOperatorLt, repository.FilterOperatorLte,
+		repository.FilterOperatorLike, repository.FilterOperatorIn, repository.FilterOperatorIsNull,
+		repository.FilterOperatorIsNotNull, OperatorBetween,
+	}
+	cfg := ListParseConfig{
+		AllowedFilterFields: []string{"f", "plain"},
+		FilterOperators:     map[string][]repository.FilterOperator{"f": ops},
+	}
+	tooMany := strings.TrimSuffix(strings.Repeat("x,", MaxInValues+1), ",")
+	tests := []struct {
+		raw  string
+		want []repository.FilterCondition // nil means 400
+	}{
+		{"a", []repository.FilterCondition{{Field: "f", Operator: "eq", Value: "a"}}},
+		{"a;ne", []repository.FilterCondition{{Field: "f", Operator: "ne", Value: "a"}}},
+		{"1;gt", []repository.FilterCondition{{Field: "f", Operator: "gt", Value: "1"}}},
+		{"1;gte", []repository.FilterCondition{{Field: "f", Operator: "gte", Value: "1"}}},
+		{"1;lt", []repository.FilterCondition{{Field: "f", Operator: "lt", Value: "1"}}},
+		{"1;lte", []repository.FilterCondition{{Field: "f", Operator: "lte", Value: "1"}}},
+		{"a;like", []repository.FilterCondition{{Field: "f", Operator: "like", Value: "%a%"}}},
+		{"a,b%2Cc;in", []repository.FilterCondition{{Field: "f", Operator: "in", Values: []any{"a", "b,c"}}}},
+		{";is_null", []repository.FilterCondition{{Field: "f", Operator: "is_null"}}},
+		{"ignored;is_not_null", []repository.FilterCondition{{Field: "f", Operator: "is_not_null"}}},
+		{"1,9;between", []repository.FilterCondition{
+			{Field: "f", Operator: "gte", Value: "1"}, {Field: "f", Operator: "lte", Value: "9"},
+		}},
+		{"1;between", nil},
+		{"1,;between", nil},
+		{"1,2,3;between", nil},
+		{tooMany + ";in", nil},
+		{"%zz;in", nil},
+		{"a;ilike", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.raw, func(t *testing.T) {
+			params, err := ParseListParams(url.Values{"f": {tt.raw}}, &cfg)
+			if tt.want == nil {
+				if err == nil {
+					t.Fatalf("ParseListParams(%q) error = nil, want 400", tt.raw)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParseListParams(%q) error = %v", tt.raw, err)
+			}
+			if err := ValidateListParams(params, &cfg); err != nil {
+				t.Fatalf("ValidateListParams() error = %v", err)
+			}
+			if got := ToListOptions(params).Filter.Conditions; !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("conditions = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+
+	t.Run("field without an operator list takes eq and like only", func(t *testing.T) {
+		for _, raw := range []string{"a", "a;like"} {
+			if _, err := ParseListParams(url.Values{"plain": {raw}}, &cfg); err != nil {
+				t.Errorf("plain=%s error = %v, want nil", raw, err)
+			}
+		}
+		_, err := ParseListParams(url.Values{"plain": {"1,2;between"}}, &cfg)
+		var e *errorz.Error
+		if !errors.As(err, &e) || e.Code != errorz.CodeBadRequest {
+			t.Errorf("plain=1,2;between error = %v, want 400", err)
+		}
+	})
+
+	t.Run("ValidateListParams rejects an operator the field does not allow", func(t *testing.T) {
+		p := &ListParams{Filters: map[string]FilterValue{"plain": {Value: "1", Operator: repository.FilterOperatorGt}}}
+		if err := ValidateListParams(p, &cfg); err == nil {
+			t.Error("error = nil, want operator not allowed")
+		}
+		p = &ListParams{Filters: map[string]FilterValue{"f": {Values: []string{"1"}, Operator: OperatorBetween}}}
+		if err := ValidateListParams(p, &cfg); err == nil {
+			t.Error("error = nil, want bad between shape")
+		}
+	})
 }

@@ -21,15 +21,36 @@ type Service struct {
 	repo      Repository
 	az        authz.Authorizer
 	listQuery listquery.ListParseConfig
+	optsQuery listquery.ListParseConfig
 }
+
+// Bounds of the options and bulk-delete endpoints.
+const (
+	optionsMaxSize  = 50
+	maxSelectedIDs  = 100
+	bulkDeleteLimit = 1000
+)
 
 // NewService returns a Service over repo, checking ":any" permissions with az.
 func NewService(cfg Config, repo Repository, az authz.Authorizer) *Service {
+	eq := []repository.FilterOperator{repository.FilterOperatorEq}
 	return &Service{repo: repo, az: az, listQuery: listquery.ListParseConfig{
 		MaxSize:             cfg.ListMaxSize,
 		AllowedSortFields:   []string{"title", "status", "pinned", "created_at", "updated_at"},
-		AllowedFilterFields: []string{"title", "status", "pinned", "owner_id"},
-		AllowedParams:       []string{"search", "created_from", "created_to"},
+		AllowedFilterFields: []string{"id", "title", "status", "pinned", "owner_id", "created_at"},
+		FilterOperators: map[string][]repository.FilterOperator{
+			"title": {repository.FilterOperatorEq, repository.FilterOperatorNe, repository.FilterOperatorLike},
+			"created_at": {
+				repository.FilterOperatorGt, repository.FilterOperatorGte, repository.FilterOperatorLt,
+				repository.FilterOperatorLte, listquery.OperatorBetween,
+			},
+			"id":     {repository.FilterOperatorEq, repository.FilterOperatorIn},
+			"status": eq, "pinned": eq, "owner_id": eq,
+		},
+		AllowedParams: []string{"search", "created_from", "created_to"},
+	}, optsQuery: listquery.ListParseConfig{
+		MaxSize:       optionsMaxSize,
+		AllowedParams: []string{"search", "ids"},
 	}}
 }
 
@@ -50,13 +71,84 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (*Note, error) {
 func (s *Service) List(
 	ctx context.Context, params *listquery.ListParams, extra ListExtra,
 ) (*dto.PageResponse[Note], error) {
+	owners := s.owners(ctx, PermReadAny)
+	opts, err := s.listOptions(params, extra, owners, PermReadAny)
+	if err != nil {
+		return nil, err
+	}
+	notes, total, err := s.repo.List(ctx, opts, extra.Search, owners)
+	if err != nil {
+		return nil, err
+	}
+	return pageOf(notes, total, params.Page, opts.Pagination.Limit), nil
+}
+
+// Options returns one page of the notes a dropdown may offer, in the list's
+// scope, ordered by title then id so infinite scroll is stable. A non-empty
+// ids returns exactly those notes instead, ignoring search and paging; IDs
+// out of scope are left out.
+//
+// shortcut: reads whole rows through List; add a two-column query when bodies get large.
+func (s *Service) Options(
+	ctx context.Context, params *listquery.ListParams, search string, ids []uuid.UUID,
+) (*dto.PageResponse[Note], error) {
+	if err := listquery.ValidateListParams(params, &s.optsQuery); err != nil {
+		return nil, err
+	}
+	if len(ids) > maxSelectedIDs {
+		return nil, badQuery("ids", fmt.Sprintf("at most %d ids", maxSelectedIDs))
+	}
+	opts := listquery.ToListOptions(params)
+	opts.Sorts = []repository.Sort{{Field: "title", Direction: repository.SortAsc}}
+	page := params.Page
+	if len(ids) > 0 {
+		search, page = "", 1
+		opts.Filter.Conditions = []repository.FilterCondition{idsIn(ids)}
+		opts.Pagination = repository.Pagination{Limit: len(ids)}
+	}
+	notes, total, err := s.repo.List(ctx, opts, search, s.owners(ctx, PermReadAny))
+	if err != nil {
+		return nil, err
+	}
+	return pageOf(notes, total, page, opts.Pagination.Limit), nil
+}
+
+// BulkDeleteIDs deletes the given notes in one transaction and returns the
+// IDs deleted. IDs out of the write scope are skipped, as if they did not
+// exist. There is no version check: bulk deletes are last-write-wins.
+func (s *Service) BulkDeleteIDs(ctx context.Context, ids []uuid.UUID) ([]uuid.UUID, error) {
+	if len(ids) == 0 || len(ids) > maxSelectedIDs {
+		return nil, badQuery("ids", fmt.Sprintf("1 to %d ids", maxSelectedIDs))
+	}
+	f := repository.Filter{Conditions: []repository.FilterCondition{idsIn(ids)}}
+	return s.repo.BulkDelete(ctx, f, "", s.owners(ctx, PermWriteAny), maxSelectedIDs)
+}
+
+// BulkDeleteMatching deletes every note in the write scope matching the
+// list's params and extra (paging and sort ignored), in one transaction. More
+// than bulkDeleteLimit matches deletes nothing: TOO_MANY_ROWS.
+func (s *Service) BulkDeleteMatching(
+	ctx context.Context, params *listquery.ListParams, extra ListExtra,
+) ([]uuid.UUID, error) {
+	owners := s.owners(ctx, PermWriteAny)
+	opts, err := s.listOptions(params, extra, owners, PermWriteAny)
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.BulkDelete(ctx, opts.Filter, extra.Search, owners, bulkDeleteLimit)
+}
+
+// listOptions checks params against the list's allow-lists and turns them and
+// extra into typed repository options. The owner_id filter needs anyPerm.
+func (s *Service) listOptions(
+	params *listquery.ListParams, extra ListExtra, owners Owners, anyPerm string,
+) (*repository.ListOptions, error) {
 	if err := listquery.ValidateListParams(params, &s.listQuery); err != nil {
 		return nil, err
 	}
-	owners := s.owners(ctx, PermReadAny)
 	if _, ok := params.Filters["owner_id"]; ok && owners != AnyOwner {
-		return nil, errorz.Forbidden().WithMessage("note: the owner_id filter needs "+PermReadAny).
-			WithMeta("permission", PermReadAny)
+		return nil, errorz.Forbidden().WithMessage("note: the owner_id filter needs "+anyPerm).
+			WithMeta("permission", anyPerm)
 	}
 	opts := listquery.ToListOptions(params)
 	if err := typeFilters(opts.Filter.Conditions); err != nil {
@@ -65,15 +157,26 @@ func (s *Service) List(
 	if err := extra.rangeConditions(&opts.Filter); err != nil {
 		return nil, err
 	}
-	notes, total, err := s.repo.List(ctx, opts, extra.Search, owners)
-	if err != nil {
-		return nil, err
+	return opts, nil
+}
+
+// idsIn is the condition id IN ids. Never call it with no ids: go-sdk drops
+// an empty IN, which would widen the statement to every row.
+func idsIn(ids []uuid.UUID) repository.FilterCondition {
+	values := make([]any, len(ids))
+	for i, id := range ids {
+		values[i] = id
 	}
+	return repository.FilterCondition{Field: "id", Operator: repository.FilterOperatorIn, Values: values}
+}
+
+// pageOf wraps one page of notes.
+func pageOf(notes []Note, total int64, page, size int) *dto.PageResponse[Note] {
 	items := make([]*Note, len(notes))
 	for i := range notes {
 		items[i] = &notes[i]
 	}
-	return dto.NewPageResponse(items, total, params.Page, opts.Pagination.Limit), nil
+	return dto.NewPageResponse(items, total, page, size)
 }
 
 // Update applies p to one of the caller's notes (any in the tenant with
@@ -96,15 +199,18 @@ func (s *Service) owners(ctx context.Context, anyPerm string) Owners {
 }
 
 // typeFilters checks each filter value against its column and converts it to
-// the column's type. Only title takes ";like"; the rest match exactly.
+// the column's type. Which operators a field takes is listQuery's job.
 func typeFilters(conds []repository.FilterCondition) error {
 	for i := range conds {
 		c := &conds[i]
 		raw := fmt.Sprint(c.Value) // ToListOptions leaves every value a string
-		if c.Field != "title" && c.Operator != repository.FilterOperatorEq {
-			return badQuery(c.Field, "only exact match is supported")
-		}
 		switch c.Field {
+		case "created_at":
+			t, err := queryTime(raw, c.Field)
+			if err != nil || t == nil {
+				return badQuery(c.Field, "must be an RFC 3339 date or timestamp")
+			}
+			c.Value = *t
 		case "status":
 			if raw != StatusDraft && raw != StatusArchived {
 				return badQuery(c.Field, "must be draft or archived")
@@ -115,13 +221,35 @@ func typeFilters(conds []repository.FilterCondition) error {
 				return badQuery(c.Field, "must be true or false")
 			}
 			c.Value = b
-		case "owner_id":
-			id, err := uuid.Parse(raw)
-			if err != nil {
-				return badQuery(c.Field, "must be a UUID")
+		case "owner_id", "id":
+			if err := typeUUIDs(c); err != nil {
+				return err
 			}
-			c.Value = id
 		}
+	}
+	return nil
+}
+
+// typeUUIDs converts a UUID condition's value, or each of an "in"'s values.
+func typeUUIDs(c *repository.FilterCondition) error {
+	parse := func(v any) (uuid.UUID, error) {
+		id, err := uuid.Parse(fmt.Sprint(v))
+		if err != nil {
+			return uuid.Nil, badQuery(c.Field, "must be a UUID")
+		}
+		return id, nil
+	}
+	if c.Operator != repository.FilterOperatorIn {
+		id, err := parse(c.Value)
+		c.Value = id
+		return err
+	}
+	for i, v := range c.Values {
+		id, err := parse(v)
+		if err != nil {
+			return err
+		}
+		c.Values[i] = id
 	}
 	return nil
 }
