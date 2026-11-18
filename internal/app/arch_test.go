@@ -9,15 +9,19 @@ import (
 	"testing"
 )
 
-const modulePath = "github.com/biairmal/go-service-template/internal/"
-
 // TestArchitecture keeps modules independent: no module imports another
 // module, and platform imports neither app nor a module.
 func TestArchitecture(t *testing.T) {
 	trackSources(t)
+	// Ask go for the module path: gonew rewrites imports, not string literals.
+	mod, err := exec.Command("go", "list", "-f", "{{.Module.Path}}", ".").Output()
+	if err != nil {
+		t.Fatalf("go list module: %v", err)
+	}
+	prefix := strings.TrimSpace(string(mod)) + "/internal/"
 	out, err := exec.Command("go", "list", "-f",
 		`{{.ImportPath}} {{join .Imports " "}} {{join .TestImports " "}} {{join .XTestImports " "}}`,
-		modulePath+"...").Output()
+		"../...").Output()
 	if err != nil {
 		t.Fatalf("go list: %v", err)
 	}
@@ -26,7 +30,7 @@ func TestArchitecture(t *testing.T) {
 		f := strings.Fields(line)
 		imports[f[0]] = f[1:]
 	}
-	for _, v := range violations(imports) {
+	for _, v := range violations(prefix, imports) {
 		t.Error(v)
 	}
 }
@@ -48,12 +52,13 @@ func trackSources(t *testing.T) {
 	}
 }
 
-// violations lists every forbidden import in pkg → imports.
-func violations(imports map[string][]string) []string {
+// violations lists every forbidden import in pkg → imports. prefix is the
+// module's internal/ import path, ending in a slash.
+func violations(prefix string, imports map[string][]string) []string {
 	var out []string
 	for pkg, deps := range imports {
 		for _, dep := range deps {
-			if !allowed(pkg, dep) {
+			if !allowed(prefix, pkg, dep) {
 				out = append(out, pkg+" must not import "+dep)
 			}
 		}
@@ -62,9 +67,9 @@ func violations(imports map[string][]string) []string {
 }
 
 // allowed reports whether pkg may import dep.
-func allowed(pkg, dep string) bool {
-	area, name := split(pkg)
-	depArea, depName := split(dep)
+func allowed(prefix, pkg, dep string) bool {
+	area, name := split(prefix, pkg)
+	depArea, depName := split(prefix, dep)
 	switch {
 	case area == "module" && depArea == "module":
 		return name == depName
@@ -77,8 +82,8 @@ func allowed(pkg, dep string) bool {
 
 // split returns the top-level area under internal/ (app, platform, module) and,
 // for modules, the module name. Packages outside internal/ return "".
-func split(pkg string) (area, module string) {
-	rest, ok := strings.CutPrefix(pkg, modulePath)
+func split(prefix, pkg string) (area, module string) {
+	rest, ok := strings.CutPrefix(pkg, prefix)
 	if !ok {
 		return "", ""
 	}
@@ -90,6 +95,8 @@ func split(pkg string) (area, module string) {
 }
 
 func TestArchitectureRules(t *testing.T) {
+	// Any module path works: the rules never name the template.
+	const modulePath = "example.com/client/svc/internal/"
 	const m = modulePath + "module/"
 	tests := []struct {
 		pkg, dep string
@@ -107,7 +114,7 @@ func TestArchitectureRules(t *testing.T) {
 		{m + "a", "net/http", true},
 	}
 	for _, tt := range tests {
-		if got := allowed(tt.pkg, tt.dep); got != tt.ok {
+		if got := allowed(modulePath, tt.pkg, tt.dep); got != tt.ok {
 			t.Errorf("allowed(%s, %s) = %v, want %v", tt.pkg, tt.dep, got, tt.ok)
 		}
 	}
