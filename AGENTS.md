@@ -1,8 +1,9 @@
 # AGENTS.md
 
-**Development guidelines for `github.com/biairmal/go-service-template`**, for humans and AI agents alike. Read this
-before any change. Examples live in [docs/PATTERNS.md](docs/PATTERNS.md); the reasons behind choices in
-[docs/DECISIONS.md](docs/DECISIONS.md).
+**Before any change, read [CONTRIBUTING.md](CONTRIBUTING.md)** for the git conventions, PR body and Definition of
+Done. This file holds the code rules for `github.com/biairmal/go-service-template`, for humans and AI agents alike.
+Examples live in [docs/PATTERNS.md](docs/PATTERNS.md); the reasons behind choices in
+[docs/DECISIONS.md](docs/DECISIONS.md); how it fits together in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Orientation
 
@@ -67,17 +68,4 @@ make help
 - Comments describe the code, not its history (no task IDs).
 - When the spec is unclear, pick the simplest option consistent with it and add a line to `docs/DECISIONS.md`.
 
-## Git conventions
-
-Checked on every PR by `.github/workflows/pr-conventions.yml`. PRs are squash-merged, so the PR title becomes the commit on `main`.
-
-- **Branch:** `<type>/<group>/<task-id>-<slug>`. `<group>` is optional and names the work stream, so parallel streams don't collide. The task ID keeps the plan's casing. Examples: `feat/p2/T10.3-audit-target`, `fix/deps/klauspost-cve`.
-- **Commit and PR title:** [Conventional Commits](https://www.conventionalcommits.org/), `<type>(<scope>)?: <what it does, lower case>`, plus ` (<task id>)` on the PR title. Types: `feat fix refactor perf test docs build ci chore revert`. A breaking change adds `!` and a `BREAKING CHANGE:` footer. The commit body says why, not how.
-- **PR body:** fill in `.github/pull_request_template.md`. `### Why` (requirement, bug, security, or refactor, with its source), `### What changed` and `### Verification` are required. Verification quotes each command's real output from the final pushed head, keeps failed or skipped checks in the table, and lists what was not verified.
-
-## Definition of Done
-
-- [ ] `make check` passes; `make test-integration` passes when the change touches the database.
-- [ ] New behaviour has table-driven tests.
-- [ ] New exported symbols have doc comments.
-- [ ] No module-to-module imports; no secrets in logs.
+Git conventions and the Definition of Done are in [CONTRIBUTING.md](CONTRIBUTING.md).

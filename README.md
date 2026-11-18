@@ -1,5 +1,7 @@
 # go-service-template
 
+[![CI](https://github.com/biairmal/go-service-template/actions/workflows/ci.yml/badge.svg)](https://github.com/biairmal/go-service-template/actions/workflows/ci.yml)
+
 A starting point for a Go resource service that trusts [go-identity](https://github.com/biairmal/go-identity),
 built on [go-sdk](https://github.com/biairmal/go-sdk). It validates identity's tokens, reads permissions through
 go-sdk `authz`, and scopes every query by tenant and owner. One binary runs `serve`, `worker` and `migrate`; one
@@ -8,14 +10,15 @@ image runs on a VPS (Docker Compose) or a cluster (Helm, including OpenShift).
 The `note` module (`internal/module/note`) is the worked example: CRUD, `If-Match` versioning, paged and filtered
 lists, owner scoping. Copy it to start a new module.
 
-Rules for every change are in [AGENTS.md](AGENTS.md), worked examples in [docs/PATTERNS.md](docs/PATTERNS.md), the
-reasons behind choices in [docs/DECISIONS.md](docs/DECISIONS.md).
+New to the codebase? Start with [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Worked examples are in
+[docs/PATTERNS.md](docs/PATTERNS.md), and the reasons behind choices in [docs/DECISIONS.md](docs/DECISIONS.md).
 
 **Contents:** [Start a client project](#start-a-client-project) ·
 [Run locally](#run-locally) · [Run with a real go-identity](#run-with-a-real-go-identity) ·
 [Add a module](#add-a-module) · [Add a migration](#add-a-migration) ·
 [Call identity's internal API](#call-identitys-internal-api) · [Deploy to a VPS](#deploy-to-a-vps) ·
-[Deploy to a cluster](#deploy-to-a-cluster) · [Endpoints](#endpoints)
+[Deploy to a cluster](#deploy-to-a-cluster) · [Endpoints](#endpoints) · [Contributing](#contributing) ·
+[Security](#security)
 
 ## Start a client project
 
@@ -349,3 +352,13 @@ termination grace period is computed from it. On kind, `kind load docker-image` 
 | `GET /v1/notes/{id}` | Read a note (`notes:read`, or `notes:read:any` for others' notes) |
 | `PATCH /v1/notes/{id}` | Change a note; needs `If-Match: <version>` (`notes:write`, plus `notes:write:any` for others' notes) |
 | `DELETE /v1/notes/{id}` | Delete a note (same permissions as `PATCH`) |
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the git conventions, PR process and Definition of Done, and
+[AGENTS.md](AGENTS.md) for the code rules and the directory map. Both apply to humans and AI agents alike.
+
+## Security
+
+Report vulnerabilities privately, never in a public issue. [SECURITY.md](SECURITY.md) has how to report, what the
+template defends against, and a checklist for deploying a service built from it.
