@@ -295,8 +295,12 @@ docker compose pull && docker compose up -d --wait
 curl https://<DOMAIN>/readyz
 ```
 
-Deploying a new version is the same two commands after changing `IMAGE_TAG`: `migrate` runs first, then `api` and
-`worker` are replaced. Caddy gets the TLS certificate for `DOMAIN` and does not forward `/v1/internal`. Postgres
+Deploying a new version: change `IMAGE_TAG` in `.env`, then run `./deploy.sh`. It pulls, runs `migrate`, starts new
+`api` replicas next to the old ones, waits until each answers `/readyz`, then stops the old ones, so no request is
+dropped. A stopping replica answers 503 on `/readyz` for `DRAIN_DELAY` (5s) while it finishes its requests, and Caddy
+retries any request it cannot deliver on another replica. `API_REPLICAS` (default 2) sets the replica count; keep it
+at 2 or more. `docker compose up -d` also deploys, but it replaces every replica at once, so requests in that window
+fail. Caddy gets the TLS certificate for `DOMAIN` and does not forward `/v1/internal`. Postgres
 listens on `127.0.0.1` only. A `backup` service writes a daily `pg_dump` into the `backups` volume and keeps
 `BACKUP_KEEP_DAYS` days; restoring is in [docs/runbooks/backup-restore.md](docs/runbooks/backup-restore.md).
 `docker compose --profile obs up -d` adds Prometheus, Grafana, Loki and Tempo (set `TRACING_ENABLED=true`;

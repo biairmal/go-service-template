@@ -7,8 +7,10 @@
 # up-identity` adds a real go-identity on localhost:8081 and turns auth on.
 #
 # VPS: copy .env.example to .env next to this file, then
-# `docker compose pull && docker compose up -d`. `migrate` runs first each
-# time; `api` and `worker` wait for it. Caddy terminates TLS for DOMAIN.
+# `docker compose pull && docker compose up -d --wait` for the first start and
+# `./deploy.sh` for every new version after that (it replaces the api
+# replicas without dropping requests). `migrate` runs first each time; `api`
+# and `worker` wait for it. Caddy terminates TLS for DOMAIN.
 #
 # On first start the Postgres init script runs deploy/sql/bootstrap.sql, which
 # creates the `app` schema and the `app` role the service connects as.
@@ -36,6 +38,9 @@ x-app: &app
   read_only: true
   tmpfs: [/tmp]
   restart: unless-stopped
+  # Longer than lifecycle drain_delay + shutdown_timeout (5s + 20s), so a
+  # stopping container finishes its requests before Docker kills it.
+  stop_grace_period: 30s
 
 # go-identity from a sibling checkout (IDENTITY_SRC, relative to this file
 # unless absolute; `make up-identity` passes an absolute path).
@@ -93,6 +98,9 @@ services:
   api:
     <<: *app
     command: ["serve"]
+    # Two replicas, so one keeps serving while deploy.sh replaces the other.
+    deploy:
+      replicas: ${API_REPLICAS:-2}
     depends_on:
       migrate:
         condition: service_completed_successfully

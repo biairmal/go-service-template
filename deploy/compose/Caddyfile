@@ -5,6 +5,26 @@
 	route {
 		@internal path /v1/internal*
 		respond @internal 404
-		reverse_proxy api:8080
+		reverse_proxy {
+			# Every api replica is its own upstream, looked up in Compose DNS each
+			# second, so one replica going away never takes the others with it.
+			dynamic a {
+				name api
+				port 8080
+				refresh 1s
+			}
+			# No health_uri: Caddy runs active health checks on static upstreams
+			# only. A stopping replica keeps serving through its drain delay, then
+			# refuses connections, and the retry below moves the request on.
+			# Mark a replica down for a while after a failed request.
+			fail_duration 5s
+			# A request that cannot reach a replica tries another one for up to 10s.
+			lb_try_duration 10s
+			lb_try_interval 250ms
+			transport http {
+				# A removed replica's address can stay in DNS for a second; fail fast.
+				dial_timeout 1s
+			}
+		}
 	}
 }
