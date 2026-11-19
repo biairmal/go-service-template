@@ -8,7 +8,7 @@ datasources:
     url: http://prometheus:9090
     isDefault: true
 
-  # Trace -> logs: every log line of api and worker carrying the trace ID.
+  # Trace -> logs: every log line of api, worker and identity carrying the trace ID.
   - name: Tempo
     uid: tempo
     type: tempo
@@ -18,7 +18,7 @@ datasources:
       tracesToLogsV2:
         datasourceUid: loki
         customQuery: true
-        query: '{service=~"api|worker"} |= "$${__trace.traceId}"'
+        query: '{service=~"api|worker|identity-api|identity-worker"} |= "$${__trace.traceId}"'
 
   # Log -> trace: the trace_id field of a JSON line opens the trace in Tempo.
   - name: Loki

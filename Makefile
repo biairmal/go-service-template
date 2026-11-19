@@ -12,7 +12,7 @@ IDENTITY_SRC ?= ../go-identity
 IDENTITY_DEV_SECRET := local-note-service-secret
 
 .DEFAULT_GOAL := help
-.PHONY: help up up-obs up-identity down image run build swagger test test-integration lint format format-check coverage vulncheck check \
+.PHONY: help up up-obs up-identity up-trace down image run build swagger test test-integration lint format format-check coverage vulncheck check \
 	migrate-up migrate-down migrate-create
 
 help: ## Show targets
@@ -28,6 +28,12 @@ up-identity: ## make up plus go-identity on localhost:8081 built from IDENTITY_S
 	test -f $(IDENTITY_SRC)/keys/keys.yaml || $(MAKE) -C $(IDENTITY_SRC) keys
 	IDENTITY_SRC="$(abspath $(IDENTITY_SRC))" AUTH_ENABLED=true IDENTITY_CLIENT_SECRET=$(IDENTITY_DEV_SECRET) \
 		$(COMPOSE) --profile identity up -d --build --wait
+
+up-trace: ## make up-identity plus the obs profile, tracing on in both services: one request is one trace in Grafana
+	test -f $(IDENTITY_SRC)/keys/keys.yaml || $(MAKE) -C $(IDENTITY_SRC) keys
+	IDENTITY_SRC="$(abspath $(IDENTITY_SRC))" AUTH_ENABLED=true TRACING_ENABLED=true \
+		IDENTITY_CLIENT_SECRET=$(IDENTITY_DEV_SECRET) \
+		$(COMPOSE) --profile identity --profile obs up -d --build --wait
 
 down: ## Stop the stack (every profile)
 	$(COMPOSE) --profile obs --profile identity down
