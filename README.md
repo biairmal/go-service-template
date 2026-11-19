@@ -15,7 +15,7 @@ New to the codebase? Start with [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Wo
 
 **Contents:** [Start a client project](#start-a-client-project) ·
 [Run locally](#run-locally) · [Run with a real go-identity](#run-with-a-real-go-identity) ·
-[Add a module](#add-a-module) · [Add a migration](#add-a-migration) ·
+[Trace a request](#trace-a-request) · [Add a module](#add-a-module) · [Add a migration](#add-a-migration) ·
 [Call identity's internal API](#call-identitys-internal-api) · [Deploy to a VPS](#deploy-to-a-vps) ·
 [Deploy to a cluster](#deploy-to-a-cluster) · [Endpoints](#endpoints) · [Contributing](#contributing) ·
 [Security](#security)
@@ -80,6 +80,7 @@ curl localhost:8080/healthz
 | Command | Does |
 |---|---|
 | `make up` / `make down` | Start / stop the Compose stack (`make up-obs` adds Prometheus, Grafana on :3000, Loki, Tempo) |
+| `make up-trace` | The stack with go-identity and the obs profile, tracing on in both ([Trace a request](#trace-a-request)) |
 | `make run`, `make build` | Regenerate `api/swagger/`, then run `serve` / build `bin/server` |
 | `make test` | Unit tests (`go test -short ./...`) |
 | `make test-integration` | Everything, including Testcontainers tests against a real Postgres (needs Docker) |
@@ -126,6 +127,27 @@ curl -sk "https://localhost/v1/notes?owner_id=<super admin id>" -H "Authorizatio
 
 `make down` stops every profile. The identity profile is for local development only; on a VPS, identity runs
 from its own repository's Compose file.
+
+## Trace a request
+
+`make up-trace` is `make up-identity` plus the `obs` profile, with tracing on in this service and in identity. A
+request then shows in Grafana as one trace: the request span, the call to identity and identity's own spans, the
+service spans and every SQL statement.
+
+```bash
+make up-trace
+# Sign in as in the section above, then read the trace ID from any response:
+curl -sk -D - https://localhost/v1/notes -H "Authorization: Bearer $T" -o /dev/null | grep -i x-trace-id
+```
+
+Every response carries `X-Trace-Id` (and JSON bodies `trace_id`); with tracing off neither is there. Open Grafana
+(`http://localhost:3000`) → Explore → Tempo, and paste the ID, or run the TraceQL query `{ trace:id = "<id>" }`.
+"Logs for this span" opens the matching api, worker and identity lines in Loki.
+
+The role map (`authz.cache_ttl`, 1 minute) and the service token (about 5 minutes) are cached, so only the first
+request after a start, or after the cache expires, calls identity. To see identity in a trace on demand, restart
+the api (`docker compose -f deploy/compose/docker-compose.yaml restart api`), or lower `authz.cache_ttl` in
+`config/config.yaml` and rebuild.
 
 ## Add a module
 
