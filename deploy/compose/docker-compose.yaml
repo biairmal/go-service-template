@@ -54,6 +54,10 @@ x-identity: &identity
     DB_PASSWORD: identity
     AUTH_ENABLED: "true"
     IDENTITY_PUBLIC_URL: http://localhost:8081
+    # Traces go to the obs profile's Tempo when TRACING_ENABLED=true (`make up-trace`).
+    TRACING_ENABLED: ${TRACING_ENABLED:-false}
+    OTEL_ENDPOINT: tempo:4317
+    SERVICE_NAME: identity
     # The dev super admin, created on identity's first start. The first
     # sign-in must change the password (POST /v1/me/password).
     SUPER_ADMIN_EMAIL: admin@example.com
@@ -199,7 +203,7 @@ services:
         condition: service_completed_successfully
 
   # --- Profile obs: metrics, logs and traces, linked in Grafana (localhost:3000).
-  # The api sends traces to Tempo when TRACING_ENABLED=true (`make up-obs` sets it).
+  # api, worker and identity send traces to Tempo when TRACING_ENABLED=true (`make up-obs` and `make up-trace` set it).
 
   prometheus:
     profiles: [obs]

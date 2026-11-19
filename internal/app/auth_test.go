@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/biairmal/go-sdk/lib/logger"
+	"github.com/biairmal/go-sdk/lib/tracer"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
@@ -56,7 +57,7 @@ func TestAuthDisabledRunsAsTheDevAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	az, err := newAuthorizer(&cfg, logger.NewNoOp())
+	az, err := newAuthorizer(&cfg, logger.NewNoOp(), identityClient(tracer.NewNoOp()))
 	if err != nil {
 		t.Fatal(err)
 	}
