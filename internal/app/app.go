@@ -141,16 +141,12 @@ func middlewareChain(
 
 // observability builds the tracer and metrics recorder, or NoOps when disabled.
 func observability(cfg *Config, log logger.Logger, reg prometheus.Registerer) (tracer.Tracer, metrics.Recorder, error) {
-	tr := tracer.NewNoOp()
-	if cfg.Tracing.Enabled {
-		var err error
-		if tr, err = tracer.NewOTel(cfg.Tracing.Config, tracer.WithLogger(log)); err != nil {
-			return nil, nil, err
-		}
+	tr, err := newTracer(cfg, log)
+	if err != nil {
+		return nil, nil, err
 	}
 	rec := metrics.NewNoOp()
 	if cfg.Metrics.Enabled {
-		var err error
 		rec, err = metrics.NewPrometheus(cfg.Metrics.Config, metrics.WithLogger(log), metrics.WithRegisterer(reg))
 		if err != nil {
 			if serr := tr.Shutdown(context.Background()); serr != nil {
@@ -160,6 +156,14 @@ func observability(cfg *Config, log logger.Logger, reg prometheus.Registerer) (t
 		}
 	}
 	return tr, rec, nil
+}
+
+// newTracer builds the OTel tracer, or a NoOp when tracing is disabled.
+func newTracer(cfg *Config, log logger.Logger) (tracer.Tracer, error) {
+	if !cfg.Tracing.Enabled {
+		return tracer.NewNoOp(), nil
+	}
+	return tracer.NewOTel(cfg.Tracing.Config, tracer.WithLogger(log))
 }
 
 // Handler returns the full HTTP handler, middleware included.

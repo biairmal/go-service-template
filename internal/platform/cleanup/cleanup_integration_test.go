@@ -18,7 +18,7 @@ var now = time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
 func TestRunOnceRemovesOnlyRowsPastTheirWindow(t *testing.T) {
 	db := testkit.Postgres(t)
 	ctx := context.Background()
-	job := New(db, testkit.NewClock(now), nil)
+	job := New(db, testkit.NewClock(now), nil, nil)
 
 	insertOutbox(ctx, t, db, "sent-recently", now.Add(-time.Hour), ptr(now.Add(-time.Hour)))
 	insertOutbox(ctx, t, db, "sent-long-ago", now.Add(-sentRetention-time.Hour),
@@ -42,7 +42,7 @@ func TestRunOnceRemovesOnlyRowsPastTheirWindow(t *testing.T) {
 // nothing to delete, so a daily run on a quiet system does nothing.
 func TestRunOnceOnAnEmptyDatabase(t *testing.T) {
 	db := testkit.Postgres(t)
-	job := New(db, testkit.NewClock(now), nil)
+	job := New(db, testkit.NewClock(now), nil, nil)
 
 	deleted, err := job.RunOnce(context.Background())
 	if err != nil {
@@ -60,7 +60,7 @@ func TestRunOnceOnAnEmptyDatabase(t *testing.T) {
 func TestRunOnceRespectsTheBatchSize(t *testing.T) {
 	db := testkit.Postgres(t)
 	ctx := context.Background()
-	job := New(db, testkit.NewClock(now), nil)
+	job := New(db, testkit.NewClock(now), nil, nil)
 	job.batch = 2
 
 	sent := ptr(now.Add(-sentRetention - time.Hour))
@@ -99,7 +99,7 @@ func TestRunOnceRespectsTheBatchSize(t *testing.T) {
 func TestRunOnceDropsOutboxRowsPastTheirExpiry(t *testing.T) {
 	db := testkit.Postgres(t)
 	ctx := context.Background()
-	job := New(db, testkit.NewClock(now), nil)
+	job := New(db, testkit.NewClock(now), nil, nil)
 
 	for label, payload := range map[string]string{
 		"expired":   `{"expires_at": "` + now.Add(-time.Minute).Format(time.RFC3339Nano) + `"}`,

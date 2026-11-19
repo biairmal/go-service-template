@@ -103,7 +103,7 @@ func TestDispatchersNeverSendARowTwice(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			d := database.NewDispatcher(db, map[string]database.Sender{"t": sender}, nil)
+			d := database.NewDispatcher(db, map[string]database.Sender{"t": sender}, nil, nil)
 			for {
 				n, err := d.DispatchOnce(ctx)
 				if err != nil {
@@ -143,7 +143,7 @@ func TestDispatcherRecordsFailures(t *testing.T) {
 		calls.Add(1)
 		return errors.New("smtp down")
 	})
-	d := database.NewDispatcher(db, map[string]database.Sender{"fails": failing}, nil)
+	d := database.NewDispatcher(db, map[string]database.Sender{"fails": failing}, nil, nil)
 	if n, err := d.DispatchOnce(ctx); err != nil || n != 2 {
 		t.Fatalf("first DispatchOnce = %d, %v; want 2 claimed", n, err)
 	}
@@ -182,7 +182,7 @@ func TestDispatcherNeverSendsAnExpiredRow(t *testing.T) {
 		sent = append(sent, m.Key)
 		return nil
 	})
-	d := database.NewDispatcher(db, map[string]database.Sender{"t": sender}, nil)
+	d := database.NewDispatcher(db, map[string]database.Sender{"t": sender}, nil, nil)
 	if n, err := d.DispatchOnce(ctx); err != nil || n != 4 {
 		t.Fatalf("DispatchOnce = %d, %v; want 4 claimed", n, err)
 	}

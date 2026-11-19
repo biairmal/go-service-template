@@ -40,6 +40,18 @@ func RunWorker(ctx context.Context, cfg *Config, log logger.Logger) error {
 	if err := checkSchema(ctx, db); err != nil {
 		return err
 	}
+	tr, err := newTracer(cfg, log)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		// ctx is done by now; the flush gets its own short deadline.
+		sctx, cancel := context.WithTimeout(context.Background(), cfg.Lifecycle.CloserTimeout)
+		defer cancel()
+		if err := tr.Shutdown(sctx); err != nil {
+			log.Error("tracer shutdown", logger.F("error", err.Error()))
+		}
+	}()
 
 	log.Info("worker started")
 
@@ -47,10 +59,10 @@ func RunWorker(ctx context.Context, cfg *Config, log logger.Logger) error {
 	// side by side; the first to fail stops the worker.
 	group, ctx := errgroup.WithContext(ctx)
 	group.Go(func() error {
-		return database.NewDispatcher(db, senders(), log).Run(ctx)
+		return database.NewDispatcher(db, senders(), log, tr).Run(ctx)
 	})
 	group.Go(func() error {
-		return cleanup.New(db, clock.System{}, log).Run(ctx, cleanup.DefaultInterval)
+		return cleanup.New(db, clock.System{}, log, tr).Run(ctx, cleanup.DefaultInterval)
 	})
 	err = group.Wait()
 
