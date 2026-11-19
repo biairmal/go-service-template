@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"sync/atomic"
+	"time"
 
 	"github.com/biairmal/go-sdk/lib/authz"
 	"github.com/biairmal/go-sdk/lib/ctxkit"
@@ -74,7 +75,7 @@ func New(ctx context.Context, cfg *Config, log logger.Logger) (*App, error) {
 		a.close(ctx)
 		return nil, err
 	}
-	az, err := newAuthorizer(cfg, log)
+	az, err := newAuthorizer(cfg, log, identityClient(tr))
 	if err != nil {
 		a.close(ctx)
 		return nil, err
@@ -91,13 +92,34 @@ func New(ctx context.Context, cfg *Config, log logger.Logger) (*App, error) {
 // With auth off, LoadConfig has already switched it to the dev admin role map.
 // With source identity, role maps are fetched with a service token from the
 // identity block's client credentials.
-func newAuthorizer(cfg *Config, log logger.Logger) (authz.Authorizer, error) {
-	opts := []authz.Option{authz.WithLogger(log)}
+func newAuthorizer(cfg *Config, log logger.Logger, client *http.Client) (authz.Authorizer, error) {
+	opts := []authz.Option{authz.WithLogger(log), authz.WithHTTPClient(client)}
 	if cfg.Authz.Source == authz.SourceIdentity {
-		st := newServiceToken(cfg.Authz.IdentityURL, cfg.Identity, http.DefaultClient, clock.System{})
+		st := newServiceToken(cfg.Authz.IdentityURL, cfg.Identity, client, clock.System{})
 		opts = append(opts, authz.WithServiceToken(st.Token))
 	}
 	return authz.New(&cfg.Authz, opts...)
+}
+
+// identityTimeout bounds every call to identity, so a slow identity cannot hold a
+// request open.
+const identityTimeout = 10 * time.Second
+
+// identityClient is the HTTP client for every call to identity. Its transport
+// starts a client span per call and sends traceparent, so identity joins the
+// caller's trace.
+func identityClient(tr tracer.Tracer) *http.Client {
+	return &http.Client{Timeout: identityTimeout, Transport: tracer.Transport(tr, nil)}
+}
+
+// routePattern is the chi route a request matched, such as /v1/notes/{id}, so
+// request spans are named by route and not by the raw path. It is empty for
+// unknown routes, which keep the raw path.
+func routePattern(r *http.Request) string {
+	if rc := chi.RouteContext(r.Context()); rc != nil {
+		return rc.RoutePattern()
+	}
+	return ""
 }
 
 // middlewareChain is the shared middleware, outermost first.
@@ -106,10 +128,10 @@ func middlewareChain(
 ) []func(http.Handler) http.Handler {
 	return []func(http.Handler) http.Handler{
 		middleware.Metrics(rec, nil),
-		middleware.Recover(),
+		middleware.Recover(log),
 		middleware.RequestID(),
 		middleware.Correlation(),
-		middleware.Tracing(tr),
+		middleware.Tracing(tr, middleware.WithRouteFunc(routePattern)),
 		middleware.Logging(log, &middleware.LoggingOptions{LogResponse: true}),
 		cors(cfg.HTTP.CORS),
 		maxBody(cfg.HTTP.MaxBodyBytes),

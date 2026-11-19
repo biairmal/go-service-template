@@ -275,10 +275,11 @@ func (u *identityUsers) DisplayName(ctx context.Context, id uuid.UUID) (string, 
 }
 ```
 
-Wire it in `internal/app`: build one `serviceToken` (`newServiceToken(cfg.Authz.IdentityURL, cfg.Identity,
-http.DefaultClient, clock.System{})`), share it between `authz` and the adapter, and pass the adapter in the
-module's `Deps`. Test the module with a fake `UserDirectory`, and the adapter against an `httptest` server, as
-`service_token_test.go` does. Cache results in the adapter if a hot path calls it.
+Wire it in `internal/app`: give the adapter the same `identityClient(tr)` that `New` builds for `authz` (it has a
+timeout, starts a client span per call and sends `traceparent`, so identity joins the trace), build one
+`serviceToken` (`newServiceToken(cfg.Authz.IdentityURL, cfg.Identity, client, clock.System{})`), share it between
+`authz` and the adapter, and pass the adapter in the module's `Deps`. Test the module with a fake `UserDirectory`,
+and the adapter against an `httptest` server, as `service_token_test.go` does. Cache results in the adapter if a hot path calls it.
 
 `/v1/internal` on *this* service is for other services too: Caddy and the Helm ingress answer 404 for it, so it is
 reachable only inside the Compose network or the cluster.

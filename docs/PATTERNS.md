@@ -630,9 +630,11 @@ Tracing is go-sdk `tracer` (OpenTelemetry, OTLP/gRPC to Tempo), switched on by `
 |---|---|
 | Server span per request, W3C `traceparent` read from the request (`middleware.Tracing`) | Exists |
 | `trace_id` on every request log line (`ctxkit.WithTraceID`), Grafana links logs ↔ traces | Exists |
+| `X-Trace-Id` on every response and `trace_id` in the envelope; CORS exposes the header | Exists |
+| Request spans named by chi route pattern (`GET /v1/notes/{id}`) | Exists |
 | Tracer in module `Deps`, spans on service operations | To build |
 | `tracing.End` helper in `internal/platform/tracing` | To build |
-| Client spans and `traceparent` on outbound HTTP (identity) | To build |
+| Client spans and `traceparent` on outbound HTTP to identity (`identityClient`, go-sdk `tracer.Transport`) | Exists |
 | Worker spans (outbox dispatch, cleanup) and `trace_id` on worker logs | To build |
 | Database spans | Open: decide between repository spans and a driver wrapper |
 
@@ -712,22 +714,19 @@ func End(span tracer.Span, err error) {
 
 ### Outbound calls
 
-A client span around every call to another service, and the W3C `traceparent` header injected so the other
-service's spans join the same trace. Use the same propagator as `middleware.Tracing`:
+Every call to another service goes through an `http.Client` whose transport is go-sdk `tracer.Transport`. It starts
+a client span per call (`GET <host>`, with `http.request.method`, `server.address` and `http.response.status_code`),
+injects the W3C `traceparent` header so the other service's spans join the same trace, and marks the span failed
+on a transport error or a 5xx. Calls to identity use `identityClient(tr)` in `internal/app`, which also sets a
+timeout:
 
 ```go
-ctx, span := c.tr.Start(ctx, "identity GET /v1/internal/users/{id}", tracer.WithSpanKind(tracer.SpanKindClient))
-defer func() { tracing.End(span, err) }()
-
-req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-// …
-propagation.TraceContext{}.Inject(ctx, propagation.HeaderCarrier(req.Header))
-resp, err := c.http.Do(req)
-// …
-span.SetAttributes(map[string]any{"http.response.status_code": resp.StatusCode})
+client := &http.Client{Timeout: identityTimeout, Transport: tracer.Transport(tr, nil)}
 ```
 
-A cached result (the service token) does not start a client span when it skips the call.
+For a span name with the route, pass `tracer.WithSpanName(func(*http.Request) string { return "identity GET
+/v1/internal/users/{id}" })`; never put the raw path in a name. A cached result (the service token) makes no call,
+so it has no client span.
 
 ### Worker
 
@@ -763,14 +762,8 @@ Until then, the service span's duration is where database time shows.
 
 - Tests pass `tracer.NewNoOp()` in `Deps`. Never assert on spans in ordinary handler or service tests.
 - `tracing.End`'s error filter gets its own table-driven test (which `errorz` codes mark the span failed).
-- For the rare test that must prove a span is started (the outbound client injecting `traceparent`), use a small
-  hand-written fake `Tracer` in that test file. go-sdk v0.3.0 declares a mockgen line for `Tracer` but does not
-  ship the generated mock.
-
-### Known gap
-
-`middleware.Tracing` names the request span from the raw path (`GET /v1/notes/5f0c…`), so every ID makes a new span
-name. It should use the chi route pattern (`GET /v1/notes/{id}`). The fix belongs in go-sdk.
+- For the rare test that must prove a trace crosses a call (the outbound client injecting `traceparent`), build a
+  real `tracer.NewOTel` pointed at an unused address and assert on the header, as `service_token_test.go` does.
 
 ## Checklist for a new endpoint
 

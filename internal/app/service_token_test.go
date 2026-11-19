@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/biairmal/go-sdk/lib/auth"
 	"github.com/biairmal/go-sdk/lib/authz"
 	"github.com/biairmal/go-sdk/lib/logger"
+	"github.com/biairmal/go-sdk/lib/tracer"
 	"github.com/google/uuid"
 
 	"github.com/biairmal/go-service-template/internal/platform/testkit"
@@ -20,7 +22,9 @@ import (
 // counts the calls to each.
 type fakeIdentity struct {
 	tokens, roleMaps atomic.Int32
-	url              string
+	// traceparent is the header the last role map request carried.
+	traceparent atomic.Value
+	url         string
 }
 
 func newFakeIdentity(t *testing.T) *fakeIdentity {
@@ -42,6 +46,7 @@ func newFakeIdentity(t *testing.T) *fakeIdentity {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
+		f.traceparent.Store(r.Header.Get("traceparent"))
 		f.roleMaps.Add(1)
 		_, _ = w.Write([]byte(`{"data":{"roles":{"member":["notes:read","notes:write"]}}}`))
 	})
@@ -62,7 +67,7 @@ func identityConfig(t *testing.T, url string) Config {
 func TestIdentitySourceFetchesTokenAndRoleMapOnce(t *testing.T) {
 	idp := newFakeIdentity(t)
 	cfg := identityConfig(t, idp.url)
-	az, err := newAuthorizer(&cfg, logger.NewNoOp())
+	az, err := newAuthorizer(&cfg, logger.NewNoOp(), identityClient(tracer.NewNoOp()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,5 +122,37 @@ func TestServiceTokenRejected(t *testing.T) {
 		http.DefaultClient, testkit.NewClock(time.Now()))
 	if _, err := st.Token(context.Background()); err == nil {
 		t.Fatal("a rejected client secret must be an error")
+	}
+}
+
+func TestRoleMapRequestCarriesTheCallersTrace(t *testing.T) {
+	// No collector listens here; the exporter connects lazily, so spans still start.
+	tr, err := tracer.NewOTel(tracer.Config{ServiceName: "test", Endpoint: "127.0.0.1:1", Insecure: true, SampleRate: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+		_ = tr.Shutdown(ctx)
+	})
+	idp := newFakeIdentity(t)
+	cfg := identityConfig(t, idp.url)
+	az, err := newAuthorizer(&cfg, logger.NewNoOp(), identityClient(tr))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, span := tr.Start(context.Background(), "request")
+	defer span.End()
+	ctx = auth.ContextWithClaims(ctx, auth.NewClaims(map[string]any{
+		"sub": uuid.NewString(), "tid": uuid.NewString(), "roles": []string{"member"},
+	}))
+	az.Can(ctx, "notes:read")
+
+	// traceparent is version-traceid-spanid-flags.
+	got, _ := idp.traceparent.Load().(string)
+	if want := span.SpanContext().TraceID; !strings.Contains(got, "-"+want+"-") {
+		t.Fatalf("role map traceparent = %q, want trace id %s", got, want)
 	}
 }
