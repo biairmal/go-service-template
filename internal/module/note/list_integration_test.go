@@ -7,6 +7,7 @@ import (
 
 	"github.com/biairmal/go-sdk/lib/auth"
 	"github.com/biairmal/go-sdk/lib/authz"
+	"github.com/biairmal/go-sdk/lib/tracer"
 	"github.com/biairmal/go-sdk/lib/validator"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -59,7 +60,7 @@ func listServer(t *testing.T) func(query string) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := note.NewHandler(note.NewService(note.Config{ListMaxSize: 100}, repo, az),
+	h := note.NewHandler(note.NewService(note.Config{ListMaxSize: 100}, repo, az, tracer.NewNoOp()),
 		validator.New(validator.Config{FieldNameTag: "json"}), az)
 	r := chi.NewRouter()
 	r.Use(func(next http.Handler) http.Handler {

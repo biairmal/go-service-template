@@ -9,10 +9,12 @@ import (
 	"github.com/biairmal/go-sdk/lib/common/dto"
 	"github.com/biairmal/go-sdk/lib/errorz"
 	"github.com/biairmal/go-sdk/lib/repository"
+	"github.com/biairmal/go-sdk/lib/tracer"
 	"github.com/google/uuid"
 
 	"github.com/biairmal/go-service-template/internal/platform/apierr"
 	"github.com/biairmal/go-service-template/internal/platform/listquery"
+	"github.com/biairmal/go-service-template/internal/platform/tracing"
 )
 
 // Service holds the note rules: who may reach which notes. It knows nothing
@@ -20,6 +22,7 @@ import (
 type Service struct {
 	repo      Repository
 	az        authz.Authorizer
+	tr        tracer.Tracer
 	listQuery listquery.ListParseConfig
 	optsQuery listquery.ListParseConfig
 }
@@ -31,10 +34,11 @@ const (
 	bulkDeleteLimit = 1000
 )
 
-// NewService returns a Service over repo, checking ":any" permissions with az.
-func NewService(cfg Config, repo Repository, az authz.Authorizer) *Service {
+// NewService returns a Service over repo, checking ":any" permissions with az
+// and starting spans with tr.
+func NewService(cfg Config, repo Repository, az authz.Authorizer, tr tracer.Tracer) *Service {
 	eq := []repository.FilterOperator{repository.FilterOperatorEq}
-	return &Service{repo: repo, az: az, listQuery: listquery.ListParseConfig{
+	return &Service{repo: repo, az: az, tr: tr, listQuery: listquery.ListParseConfig{
 		MaxSize:             cfg.ListMaxSize,
 		AllowedSortFields:   []string{"title", "status", "pinned", "created_at", "updated_at"},
 		AllowedFilterFields: []string{"id", "title", "status", "pinned", "owner_id", "created_at"},
@@ -70,7 +74,10 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (*Note, error) {
 // newest change comes first. The owner_id filter needs PermReadAny.
 func (s *Service) List(
 	ctx context.Context, params *listquery.ListParams, extra ListExtra,
-) (*dto.PageResponse[Note], error) {
+) (_ *dto.PageResponse[Note], err error) {
+	ctx, span := s.tr.Start(ctx, "note.List")
+	defer func() { tracing.End(span, err) }()
+
 	owners := s.owners(ctx, PermReadAny)
 	opts, err := s.listOptions(params, extra, owners, PermReadAny)
 	if err != nil {
@@ -80,6 +87,7 @@ func (s *Service) List(
 	if err != nil {
 		return nil, err
 	}
+	span.SetAttributes(map[string]any{"note.count": len(notes), "note.total": total})
 	return pageOf(notes, total, params.Page, opts.Pagination.Limit), nil
 }
 
@@ -181,7 +189,10 @@ func pageOf(notes []Note, total int64, page, size int) *dto.PageResponse[Note] {
 
 // Update applies p to one of the caller's notes (any in the tenant with
 // PermWriteAny), provided its version is still version.
-func (s *Service) Update(ctx context.Context, id uuid.UUID, version int, p *Patch) (*Note, error) {
+func (s *Service) Update(ctx context.Context, id uuid.UUID, version int, p *Patch) (_ *Note, err error) {
+	ctx, span := s.tr.Start(ctx, "note.Update", tracer.WithAttributes(map[string]any{"note.id": id.String()}))
+	defer func() { tracing.End(span, err) }()
+
 	return s.repo.Update(ctx, id, version, p, s.owners(ctx, PermWriteAny))
 }
 

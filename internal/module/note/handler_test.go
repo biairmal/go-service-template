@@ -12,6 +12,7 @@ import (
 	"github.com/biairmal/go-sdk/lib/auth"
 	"github.com/biairmal/go-sdk/lib/authz"
 	"github.com/biairmal/go-sdk/lib/repository"
+	"github.com/biairmal/go-sdk/lib/tracer"
 	"github.com/biairmal/go-sdk/lib/validator"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -36,7 +37,7 @@ func newTestServer(t *testing.T, perms ...string) (http.Handler, *MockRepository
 		t.Fatal(err)
 	}
 	v := validator.New(validator.Config{FieldNameTag: "json"})
-	h := NewHandler(NewService(Config{ListMaxSize: 50}, repo, az), v, az)
+	h := NewHandler(NewService(Config{ListMaxSize: 50}, repo, az, tracer.NewNoOp()), v, az)
 	r := chi.NewRouter()
 	r.Use(func(next http.Handler) http.Handler {
 		claims := auth.NewClaims(map[string]any{

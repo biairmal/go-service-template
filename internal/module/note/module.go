@@ -3,6 +3,7 @@ package note
 import (
 	"github.com/biairmal/go-sdk/lib/authz"
 	"github.com/biairmal/go-sdk/lib/sqlkit"
+	"github.com/biairmal/go-sdk/lib/tracer"
 	"github.com/biairmal/go-sdk/lib/validator"
 
 	"github.com/biairmal/go-service-template/internal/platform/httpx"
@@ -23,9 +24,10 @@ const (
 
 // Deps are what note needs from internal/app.
 type Deps struct {
-	DB    *sqlkit.DB
-	V     validator.Validator
-	Authz authz.Authorizer
+	DB     *sqlkit.DB
+	V      validator.Validator
+	Authz  authz.Authorizer
+	Tracer tracer.Tracer
 }
 
 // Module is the note feature boundary.
@@ -35,7 +37,7 @@ type Module struct {
 
 // New builds repository → service → handler from the modules.note block.
 func New(cfg Config, deps Deps) *Module {
-	svc := NewService(cfg, NewRepository(deps.DB), deps.Authz)
+	svc := NewService(cfg, NewRepository(deps.DB), deps.Authz, deps.Tracer)
 	return &Module{h: NewHandler(svc, deps.V, deps.Authz)}
 }
 

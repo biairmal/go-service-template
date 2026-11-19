@@ -632,8 +632,8 @@ Tracing is go-sdk `tracer` (OpenTelemetry, OTLP/gRPC to Tempo), switched on by `
 | `trace_id` on every request log line (`ctxkit.WithTraceID`), Grafana links logs ↔ traces | Exists |
 | `X-Trace-Id` on every response and `trace_id` in the envelope; CORS exposes the header | Exists |
 | Request spans named by chi route pattern (`GET /v1/notes/{id}`) | Exists |
-| Tracer in module `Deps`, spans on service operations | To build |
-| `tracing.End` helper in `internal/platform/tracing` | To build |
+| Tracer in module `Deps`, spans on service operations (`note.List`, `note.Update`) | Exists |
+| `tracing.End` helper in `internal/platform/tracing` | Exists |
 | Client spans and `traceparent` on outbound HTTP to identity (`identityClient`, go-sdk `tracer.Transport`) | Exists |
 | Worker spans (outbox dispatch, cleanup) and `trace_id` on worker logs | To build |
 | Database spans, one per statement (go-sdk `tracesql` around the pgx driver) | Exists |
@@ -684,14 +684,14 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, version int, p *Patc
 
 ### Errors on spans
 
-`tracing.End(span, err)` marks the span failed only when `err` is a server-side failure (`errorz` code internal, or
-no `errorz` code at all). A 400, 401, 403, 404, 409 or 428 is the API working as designed: the span ends without an
-error, otherwise every not-found fills the error view. The request span already marks itself failed on any 5xx.
+`tracing.End(span, err)` marks the span failed only when `err` is a server-side failure: one the API answers with
+a 5xx (`errorz` internal, bad gateway or unavailable, or no `errorz` code at all). A 400, 401, 403, 404, 409 or
+428 is the API working as designed: the span ends without an error, otherwise every not-found fills the error view. The request span already marks itself failed on any 5xx.
 
 ```go
 // End ends span, recording err when it is a server-side failure.
 func End(span tracer.Span, err error) {
-    if err != nil && isServerError(err) {
+    if err != nil && handler.StatusCodeFromError(err) >= http.StatusInternalServerError {
         span.SetError(err)
     }
     span.End()

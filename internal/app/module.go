@@ -4,6 +4,7 @@ import (
 	"github.com/biairmal/go-sdk/lib/authz"
 	"github.com/biairmal/go-sdk/lib/logger"
 	"github.com/biairmal/go-sdk/lib/sqlkit"
+	"github.com/biairmal/go-sdk/lib/tracer"
 	"github.com/biairmal/go-sdk/lib/validator"
 
 	"github.com/biairmal/go-service-template/internal/module/note"
@@ -19,6 +20,8 @@ type Deps struct {
 	// Authz answers permission checks for the caller in the request context.
 	Authz  authz.Authorizer
 	Outbox *database.Outbox
+	// Tracer starts spans; it is a NoOp when tracing is off.
+	Tracer tracer.Tracer
 }
 
 // Module is a feature boundary. internal/app only sees this: it builds each
@@ -33,6 +36,6 @@ type Module interface {
 // registered. Adding a module adds one entry here.
 func buildModules(cfg *Config, deps *Deps) []Module {
 	return []Module{
-		note.New(cfg.Modules.Note, note.Deps{DB: deps.DB, V: deps.V, Authz: deps.Authz}),
+		note.New(cfg.Modules.Note, note.Deps{DB: deps.DB, V: deps.V, Authz: deps.Authz, Tracer: deps.Tracer}),
 	}
 }
