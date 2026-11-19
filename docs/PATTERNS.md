@@ -635,7 +635,7 @@ Tracing is go-sdk `tracer` (OpenTelemetry, OTLP/gRPC to Tempo), switched on by `
 | Tracer in module `Deps`, spans on service operations (`note.List`, `note.Update`) | Exists |
 | `tracing.End` helper in `internal/platform/tracing` | Exists |
 | Client spans and `traceparent` on outbound HTTP to identity (`identityClient`, go-sdk `tracer.Transport`) | Exists |
-| Worker spans (outbox dispatch, cleanup) and `trace_id` on worker logs | To build |
+| Worker spans (outbox dispatch, cleanup) and `trace_id` on worker logs | Exists |
 | Database spans, one per statement (go-sdk `tracesql` around the pgx driver) | Exists |
 
 ### Where spans go
@@ -741,8 +741,10 @@ defer func() { tracing.End(span, err) }()
 
 - One `outbox.send <topic>` producer span per message, child of the dispatch span, with `outbox.id`,
   `outbox.topic` and `outbox.attempts`.
-- An empty poll (no rows claimed) still ends its span, but sets `outbox.claimed: 0`; if empty polls flood Tempo,
-  sample them out rather than removing the span.
+- The dispatcher polls every second, so a poll that claims nothing starts no span: the claim runs first, outside
+  any span (its SQL makes no trace), and `outbox.dispatch` starts only once rows are claimed, with
+  `outbox.claimed`. The cleanup job runs daily, so every run gets a `cleanup.run` span with
+  `cleanup.deleted.<table>` counts.
 - Linking a send back to the request that enqueued it means storing `traceparent` on the outbox row at `Enqueue`
   time. That needs a migration and is not part of the pattern yet.
 

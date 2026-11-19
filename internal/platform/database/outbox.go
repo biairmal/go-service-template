@@ -7,9 +7,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/biairmal/go-sdk/lib/ctxkit"
 	"github.com/biairmal/go-sdk/lib/errorz"
 	"github.com/biairmal/go-sdk/lib/logger"
 	"github.com/biairmal/go-sdk/lib/sqlkit"
+	"github.com/biairmal/go-sdk/lib/tracer"
+
+	"github.com/biairmal/go-service-template/internal/platform/tracing"
 )
 
 // Dispatcher defaults.
@@ -93,17 +97,21 @@ type Dispatcher struct {
 	db       *sqlkit.DB
 	senders  map[string]Sender
 	log      logger.Logger
+	tr       tracer.Tracer
 	batch    int
 	interval time.Duration
 }
 
 // NewDispatcher returns a Dispatcher routing each topic to its Sender. A row
-// whose topic has no Sender counts as a failed attempt. log may be nil.
-func NewDispatcher(db *sqlkit.DB, senders map[string]Sender, log logger.Logger) *Dispatcher {
+// whose topic has no Sender counts as a failed attempt. log and tr may be nil.
+func NewDispatcher(db *sqlkit.DB, senders map[string]Sender, log logger.Logger, tr tracer.Tracer) *Dispatcher {
 	if log == nil {
 		log = logger.NewNoOp()
 	}
-	return &Dispatcher{db: db, senders: senders, log: log, batch: defaultBatchSize, interval: defaultPollInterval}
+	if tr == nil {
+		tr = tracer.NewNoOp()
+	}
+	return &Dispatcher{db: db, senders: senders, log: log, tr: tr, batch: defaultBatchSize, interval: defaultPollInterval}
 }
 
 // Run polls until ctx is done. A full batch is followed immediately by the
@@ -128,14 +136,25 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 // DispatchOnce claims one batch of due rows, sends them and records the
 // outcome, all in one transaction. A failed row is retried with exponential
 // backoff counted from its creation time. It returns how many rows it claimed.
+//
+// A batch that claimed rows gets an outbox.dispatch root span, started after
+// the claim, so an idle poll creates no trace. Its trace ID goes on the context,
+// so the batch's log lines carry trace_id.
 func (d *Dispatcher) DispatchOnce(ctx context.Context) (int, error) {
 	var claimed int
+	var span tracer.Span
 	err := WithTx(ctx, d.db, func(ctx context.Context) error {
 		msgs, err := d.claim(ctx)
 		if err != nil {
 			return err
 		}
 		claimed = len(msgs)
+		if claimed == 0 {
+			return nil
+		}
+		ctx, span = d.tr.Start(ctx, "outbox.dispatch")
+		span.SetAttributes(map[string]any{"outbox.claimed": claimed})
+		ctx = ctxkit.WithTraceID(ctx, span.SpanContext().TraceID)
 		for i := range msgs {
 			if err := d.deliver(ctx, &msgs[i]); err != nil {
 				return err
@@ -143,6 +162,9 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context) (int, error) {
 		}
 		return nil
 	})
+	if span != nil {
+		tracing.End(span, err) // after the commit, so the span covers it
+	}
 	return claimed, err
 }
 
@@ -176,11 +198,18 @@ func (d *Dispatcher) claim(ctx context.Context) ([]claimedRow, error) {
 	return msgs, nil
 }
 
-// deliver sends one message and records success or the failure.
-func (d *Dispatcher) deliver(ctx context.Context, m *claimedRow) error {
+// deliver sends one message and records success or the failure, inside an
+// outbox.send <topic> producer span. A failed send marks the span failed.
+func (d *Dispatcher) deliver(ctx context.Context, m *claimedRow) (err error) {
+	ctx, span := d.tr.Start(ctx, "outbox.send "+m.Topic, tracer.WithSpanKind(tracer.SpanKindProducer))
+	span.SetAttributes(map[string]any{"outbox.id": m.ID, "outbox.topic": m.Topic, "outbox.attempts": m.Attempts})
+	defer func() { tracing.End(span, err) }()
+
 	sendErr := d.send(ctx, m)
+	if sendErr != nil {
+		span.SetError(sendErr)
+	}
 	conn := Leader(ctx, d.db)
-	var err error
 	if sendErr == nil {
 		_, err = conn.ExecContext(ctx, `UPDATE outbox SET sent_at = now() WHERE id = $1`, m.ID)
 	} else {

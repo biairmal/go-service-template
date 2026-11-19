@@ -8,12 +8,15 @@ import (
 	"context"
 	"time"
 
+	"github.com/biairmal/go-sdk/lib/ctxkit"
 	"github.com/biairmal/go-sdk/lib/errorz"
 	"github.com/biairmal/go-sdk/lib/logger"
 	"github.com/biairmal/go-sdk/lib/sqlkit"
+	"github.com/biairmal/go-sdk/lib/tracer"
 
 	"github.com/biairmal/go-service-template/internal/platform/clock"
 	"github.com/biairmal/go-service-template/internal/platform/database"
+	"github.com/biairmal/go-service-template/internal/platform/tracing"
 )
 
 // Defaults for the cleanup job.
@@ -36,18 +39,22 @@ type Job struct {
 	db    *sqlkit.DB
 	clock clock.Clock
 	log   logger.Logger
+	tr    tracer.Tracer
 	batch int
 }
 
-// New returns a Job over db. clk and log may be nil.
-func New(db *sqlkit.DB, clk clock.Clock, log logger.Logger) *Job {
+// New returns a Job over db. clk, log and tr may be nil.
+func New(db *sqlkit.DB, clk clock.Clock, log logger.Logger, tr tracer.Tracer) *Job {
 	if clk == nil {
 		clk = clock.System{}
 	}
 	if log == nil {
 		log = logger.NewNoOp()
 	}
-	return &Job{db: db, clock: clk, log: log, batch: DefaultBatchSize}
+	if tr == nil {
+		tr = tracer.NewNoOp()
+	}
+	return &Job{db: db, clock: clk, log: log, tr: tr, batch: DefaultBatchSize}
 }
 
 // task is one table's retention rule.
@@ -137,10 +144,27 @@ func (j *Job) Run(ctx context.Context, every time.Duration) error {
 	}
 }
 
-// drain runs passes until no table fills its batch.
+// drain runs passes until no table fills its batch, inside one cleanup.run root
+// span with the rows deleted per table. The job runs daily, so every run gets a
+// span, even one that deleted nothing. Its trace ID goes on the context, so the
+// run's log lines carry trace_id.
 func (j *Job) drain(ctx context.Context) {
+	ctx, span := j.tr.Start(ctx, "cleanup.run")
+	ctx = ctxkit.WithTraceID(ctx, span.SpanContext().TraceID)
+	var err error
+	defer func() { tracing.End(span, err) }()
+
+	counts := map[string]int64{}
+	defer func() {
+		attrs := make(map[string]any, len(counts))
+		for name, n := range counts {
+			attrs["cleanup.deleted."+name] = n
+		}
+		span.SetAttributes(attrs)
+	}()
 	for {
-		deleted, err := j.RunOnce(ctx)
+		var deleted map[string]int64
+		deleted, err = j.RunOnce(ctx)
 		if err != nil {
 			j.log.ErrorWithContext(ctx, "cleanup pass failed", logger.F("error", err.Error()))
 			return
@@ -148,6 +172,7 @@ func (j *Job) drain(ctx context.Context) {
 		total, full := int64(0), false
 		for name, n := range deleted {
 			total += n
+			counts[name] += n
 			if n >= int64(j.batch) {
 				full = true
 			}
