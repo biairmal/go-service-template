@@ -49,6 +49,7 @@ watch this repository's security advisories and apply the fix to each project by
 | Database reachable from outside | In Compose, Postgres listens on `127.0.0.1` only | `deploy/compose/docker-compose.yaml` |
 | Container breakout | Pods run as non-root with a read-only root filesystem and no privilege escalation | `deploy/helm/service/templates/_helpers.tpl` |
 | Secrets leaking into logs | Tokens, passwords and request and response bodies are never logged | [AGENTS.md](AGENTS.md) |
+| Values leaking into traces | SQL spans record the statement text but never its arguments, so values are always bound as `$n` arguments. Span names use route patterns, never raw paths or ids | `internal/platform/database/driver.go`, [docs/PATTERNS.md](docs/PATTERNS.md#tracing) |
 | Vulnerable dependencies | `govulncheck` runs in CI (`make check`). Renovate keeps dependencies current | `Makefile`, `renovate.json` |
 
 How these fit together is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

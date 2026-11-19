@@ -636,7 +636,7 @@ Tracing is go-sdk `tracer` (OpenTelemetry, OTLP/gRPC to Tempo), switched on by `
 | `tracing.End` helper in `internal/platform/tracing` | To build |
 | Client spans and `traceparent` on outbound HTTP to identity (`identityClient`, go-sdk `tracer.Transport`) | Exists |
 | Worker spans (outbox dispatch, cleanup) and `trace_id` on worker logs | To build |
-| Database spans | Open: decide between repository spans and a driver wrapper |
+| Database spans, one per statement (go-sdk `tracesql` around the pgx driver) | Exists |
 
 ### Where spans go
 
@@ -748,15 +748,14 @@ defer func() { tracing.End(span, err) }()
 
 ### Database
 
-Not decided. Two options, to choose when the first slow query needs finding:
+The pgx driver is registered through go-sdk `tracesql.WrapDriver` (`internal/platform/database/driver.go`), so every
+statement run under a span becomes a child span with `db.system.name: postgresql` and the statement text. Argument
+values are never recorded, so always bind values as arguments (`$1`), never format them into the SQL. `Begin`,
+`Commit` and `Rollback` get spans too, which shows where a transaction starts and ends. A statement with no span
+above it (health checks, pool maintenance, an idle worker poll) creates no trace.
 
-- **Repository spans** on the methods that matter, named `<module>.repo.<Method>`, with `db.system: postgresql`.
-  No new dependency; only the methods someone instrumented show up.
-- **A driver wrapper** (an OpenTelemetry `database/sql` instrumentation around the pgx driver in
-  `internal/platform/database/driver.go`): one span per statement everywhere, for free, but noisier traces and a new
-  dependency.
-
-Until then, the service span's duration is where database time shows.
+Repositories still start no spans of their own. Add a `<module>.repo.<Method>` span only for a method whose
+statements are worth timing together (a long report).
 
 ### Testing
 
