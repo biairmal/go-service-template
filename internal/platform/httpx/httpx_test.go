@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/biairmal/go-sdk/lib/authz"
 	"github.com/biairmal/go-sdk/lib/errorz"
 	"github.com/biairmal/go-sdk/lib/httpkit/handler"
 
@@ -140,5 +141,23 @@ func TestHandle(t *testing.T) {
 				t.Errorf("meta.reason in body = %v, want %v: %s", got, tt.wantReason, rec.Body.String())
 			}
 		})
+	}
+}
+
+func TestAdminRouteWithoutPermissionCheckIsDenied(t *testing.T) {
+	ok := Handle(func(*http.Request) (any, error) { return "ok", nil })
+	for name, tc := range map[string]struct {
+		h    http.Handler
+		want int
+	}{
+		"no check":   {DenyUnchecked(ok), http.StatusForbidden},
+		"check ran":  {DenyUnchecked(RequirePermission(authz.NewNoOp(), "x:y")(ok)), http.StatusOK},
+		"not /admin": {ok, http.StatusOK},
+	} {
+		rec := httptest.NewRecorder()
+		tc.h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
+		if rec.Code != tc.want {
+			t.Errorf("%s: status = %d, want %d", name, rec.Code, tc.want)
+		}
 	}
 }

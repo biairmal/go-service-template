@@ -24,7 +24,7 @@ go-sdk's `docs/TECH_DEBT.md`. The template-side fix does not wait for the SDK fi
 
 ## P0 — security
 
-### [ ] TD-01 `/metrics` and `/version` are public through the edge, and the Helm block may not apply
+### [x] TD-01 `/metrics` and `/version` are public through the edge, and the Helm block may not apply
 - **Where:** [Caddyfile](../deploy/compose/Caddyfile), [ingress.yaml](../deploy/helm/service/templates/ingress.yaml), auth rules in [config.yaml](../config/config.yaml)
 - **Problem:** The auth rules make `/metrics`, `/version` and `/readyz` public, and Caddy and the ingress hide only
   `/v1/internal`. Anyone on the internet reads the metrics page (routes, traffic, Go and process stats). The Helm
@@ -36,7 +36,7 @@ go-sdk's `docs/TECH_DEBT.md`. The template-side fix does not wait for the SDK fi
 - **Done when:** a test or CI smoke step shows `/metrics` and `/v1/internal/x` return 404 through Caddy, and the
   Helm template renders a rule for both.
 
-### [ ] TD-02 `/v1/internal` and `/v1/admin` have no guard in the code
+### [x] TD-02 `/v1/internal` and `/v1/admin` have no guard in the code
 - **Where:** [routes.go](../internal/app/routes.go) (`groups`), [httpx/routes.go](../internal/platform/httpx/routes.go), [DECISIONS.md](DECISIONS.md) (2026-11-05, T0.4)
 - **Problem:** The docs say `/v1/internal` is "service tokens only" and every `/v1/admin` route adds
   `RequirePermission`. `groups()` adds no middleware to any group. Any logged-in user token reaches an internal
@@ -48,7 +48,7 @@ go-sdk's `docs/TECH_DEBT.md`. The template-side fix does not wait for the SDK fi
 - **Done when:** a test sends a normal user token to a dummy `/v1/internal` route and gets 403, and a dummy
   `/v1/admin` route with no permission check is rejected.
 
-### [ ] TD-03 Default database passwords if `.env` is blank
+### [x] TD-03 Default database passwords if `.env` is blank
 - **Where:** [docker-compose.yaml:75-76,139](../deploy/compose/docker-compose.yaml), [deploy/compose/.env.example](../deploy/compose/.env.example), [config.yaml](../config/config.yaml) (`database.leader.password`), [config.go](../internal/app/config.go)
 - **Problem:** Compose uses `${POSTGRES_PASSWORD:-postgres}` and `${DB_PASSWORD:-app}`, and the shipped `.env.example`
   leaves both blank, so a forgotten value becomes `postgres` or `app`. The app accepts the password `app` in

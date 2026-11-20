@@ -8,7 +8,7 @@ metadata:
   {{- $annotations := .Values.route.annotations }}
   {{- if .Values.route.blockInternalPath }}
   {{/* nginx-ingress only; other controllers need their own rule (docs/DECISIONS.md). */}}
-  {{- $annotations = merge (dict "nginx.ingress.kubernetes.io/configuration-snippet" "if ($uri ~* \"^/v1/internal\") { return 404; }\n") $annotations }}
+  {{- $annotations = merge (dict "nginx.ingress.kubernetes.io/configuration-snippet" "if ($uri ~* \"^/(v1/internal|metrics)\") { return 404; }\n") $annotations }}
   {{- end }}
   {{- with $annotations }}
   annotations:
@@ -24,6 +24,17 @@ spec:
     - host: {{ .Values.route.host | quote }}
       http:
         paths:
+          {{- with .Values.route.denyBackend }}
+          {{- range $p := list "/metrics" "/v1/internal" }}
+          - path: {{ $p }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $.Values.route.denyBackend.name }}
+                port:
+                  number: {{ $.Values.route.denyBackend.port }}
+          {{- end }}
+          {{- end }}
           - path: /
             pathType: Prefix
             backend:

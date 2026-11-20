@@ -55,8 +55,14 @@ func groups(r chi.Router) httpx.Routes {
 	r.Route("/v1", func(v1 chi.Router) {
 		rt.API = v1
 		v1.Route("/me", func(g chi.Router) { rt.Me = g })
-		v1.Route("/admin", func(g chi.Router) { rt.Admin = g })
-		v1.Route("/internal", func(g chi.Router) { rt.Internal = g })
+		v1.Route("/admin", func(g chi.Router) {
+			g.Use(httpx.DenyUnchecked)
+			rt.Admin = g
+		})
+		v1.Route("/internal", func(g chi.Router) {
+			g.Use(httpx.RequireServiceToken)
+			rt.Internal = g
+		})
 	})
 	return rt
 }

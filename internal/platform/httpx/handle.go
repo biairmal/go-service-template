@@ -3,6 +3,7 @@ package httpx
 import (
 	"net/http"
 
+	"github.com/biairmal/go-sdk/lib/errorz"
 	"github.com/biairmal/go-sdk/lib/httpkit/handler"
 )
 
@@ -10,5 +11,13 @@ import (
 // error → its status. Use it for every route, so headers derived from errors
 // (such as Retry-After, once a rate limiter exists) are added in one place.
 func Handle(h handler.Func) http.HandlerFunc {
-	return handler.Handle(h)
+	wrapped := handler.Handle(h)
+	return func(w http.ResponseWriter, r *http.Request) {
+		if unchecked(r) {
+			handler.WriteErrorResponse(w, http.StatusForbidden,
+				errorz.Forbidden().WithMessage("route has no permission check"))
+			return
+		}
+		wrapped(w, r)
+	}
 }

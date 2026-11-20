@@ -44,6 +44,10 @@ route:
   # via the ClusterIP Service (or in-cluster DNS) that other services use.
   # true adds the controller-specific rule that denies it.
   blockInternalPath: true
+  # Controllers that disable configuration snippets (ingress-nginx default) ignore the rule above.
+  # Set a service that answers 404 (the controller default backend, say) and /metrics and
+  # /v1/internal are routed to it instead.
+  denyBackend: {}   # {name: <service>, port: <number>}
   tls:
     enabled: false
     secretName: ""
