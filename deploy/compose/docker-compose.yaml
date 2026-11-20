@@ -51,7 +51,6 @@ x-identity: &identity
   build: ${IDENTITY_SRC:-../../../go-identity}
   environment:
     DB_HOST: postgres
-    DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
     DB_USER: identity
     DB_PASSWORD: identity
     AUTH_ENABLED: "true"
