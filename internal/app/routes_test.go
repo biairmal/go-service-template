@@ -39,8 +39,12 @@ func TestRouteGroups(t *testing.T) {
 		}
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, http.NoBody))
-		if rec.Code != http.StatusNoContent {
-			t.Errorf("GET %s = %d, want 204", p, rec.Code)
+		want := http.StatusNoContent
+		if p == "/v1/internal/users" {
+			want = http.StatusForbidden // mounted, behind the service-token guard
+		}
+		if rec.Code != want {
+			t.Errorf("GET %s = %d, want %d", p, rec.Code, want)
 		}
 	}
 }

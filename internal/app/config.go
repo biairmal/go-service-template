@@ -129,7 +129,7 @@ func (c *Config) sections() []section {
 	return []section{
 		{"service", c.Service.validate},
 		{"http", c.HTTP.validate},
-		{"database", c.Database.Validate},
+		{"database", c.validateDatabase},
 		{"auth", c.validateAuth},
 		{"authz", c.Authz.Validate},
 		{"identity", c.validateIdentity},
@@ -267,4 +267,17 @@ func (c *Config) applyDefaults() {
 	if c.Authz.SuperClaim == "" {
 		c.Authz.SuperClaim = def.SuperClaim
 	}
+}
+
+// devDBPassword is the throwaway password local setups use; production refuses it.
+const devDBPassword = "app"
+
+func (c *Config) validateDatabase() error {
+	if err := c.Database.Validate(); err != nil {
+		return err
+	}
+	if c.Service.Environment == EnvProduction && c.Database.Leader.Password == devDBPassword {
+		return errorz.BadRequest().WithMessage("leader password must not be the development default in production")
+	}
+	return nil
 }

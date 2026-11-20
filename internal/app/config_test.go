@@ -26,6 +26,11 @@ func TestConfigValidate(t *testing.T) {
 		{"no addr", func(c *Config) { c.HTTP.Addr = "" }, "http"},
 		{"no body limit", func(c *Config) { c.HTTP.MaxBodyBytes = 0 }, "http"},
 		{"no db host", func(c *Config) { c.Database.Leader.Host = "" }, "database"},
+		{"production with default db password", func(c *Config) {
+			c.Service.Environment = EnvProduction
+			c.Auth.Enabled = true
+			c.Database.Leader.Password = "app"
+		}, "database"},
 		{"metrics on needs path", func(c *Config) { c.Metrics.Enabled = true; c.Metrics.Path = "" }, "metrics"},
 		{"metrics off ignores path", func(c *Config) { c.Metrics.Enabled = false; c.Metrics.Path = "" }, ""},
 		{"swagger on needs credentials", func(c *Config) { c.Swagger.Enabled = true }, "swagger"},
@@ -33,8 +38,15 @@ func TestConfigValidate(t *testing.T) {
 			c.Swagger = SwaggerConfig{Enabled: true, Username: "u", Password: "p"}
 		}, ""},
 		{"tracing on needs endpoint", func(c *Config) { c.Tracing.Enabled = true; c.Tracing.Endpoint = "" }, "tracing"},
-		{"production needs auth", func(c *Config) { c.Service.Environment = EnvProduction }, "auth"},
-		{"production with auth on", func(c *Config) { c.Service.Environment = EnvProduction; c.Auth.Enabled = true }, ""},
+		{"production needs auth", func(c *Config) {
+			c.Service.Environment = EnvProduction
+			c.Database.Leader.Password = "s3cret"
+		}, "auth"},
+		{"production with auth on", func(c *Config) {
+			c.Service.Environment = EnvProduction
+			c.Auth.Enabled = true
+			c.Database.Leader.Password = "s3cret"
+		}, ""},
 		{"auth on needs jwks_url", func(c *Config) { c.Auth.Enabled = true; c.Auth.Local.JWKSURL = "" }, "auth"},
 		{"bad authz source", func(c *Config) { c.Authz.Source = "ldap" }, "authz"},
 		{"identity source needs client secret", func(c *Config) {

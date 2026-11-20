@@ -81,3 +81,29 @@ func TestAuthDisabledRunsAsTheDevAdmin(t *testing.T) {
 		t.Error("the dev admin should hold every permission")
 	}
 }
+
+func TestInternalRoutesNeedAServiceToken(t *testing.T) {
+	keys := testkit.SigningKeys(t, "identity", "api")
+	cfg := validConfig(t)
+	cfg.Auth.Enabled = true
+	cfg.Auth.Local.JWKSURL = keys.JWKSURL
+	mw, err := authMiddleware(&cfg, logger.NewNoOp())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := (&App{}).routes(chi.NewRouter(), []Module{groupsModule{}}, []func(http.Handler) http.Handler{mw})
+	user := keys.Token(t, uuid.NewString(), uuid.NewString(), []string{"member"}, nil)
+	service := keys.Token(t, uuid.NewString(), uuid.NewString(), nil, map[string]any{"scope": "internal"})
+	for name, tc := range map[string]struct {
+		token string
+		want  int
+	}{"user token": {user, http.StatusForbidden}, "service token": {service, http.StatusNoContent}} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/v1/internal/users", http.NoBody)
+		req.Header = testkit.Bearer(tc.token)
+		h.ServeHTTP(rec, req)
+		if rec.Code != tc.want {
+			t.Errorf("%s: status = %d, want %d (%s)", name, rec.Code, tc.want, rec.Body)
+		}
+	}
+}

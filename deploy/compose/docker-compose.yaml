@@ -27,6 +27,7 @@ x-app: &app
       required: false
   environment:
     DB_HOST: postgres
+    DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
     TRACING_ENABLED: ${TRACING_ENABLED:-false}
     OTEL_ENDPOINT: tempo:4317
     # Auth: off unless set here or in .env. `make up-identity` turns it on
@@ -76,8 +77,8 @@ services:
     environment:
       POSTGRES_DB: app
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      APP_DB_PASSWORD: ${DB_PASSWORD:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      APP_DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
     ports:
       # Loopback only: `make run` and psql reach it from the host, the internet doesn't.
       - "127.0.0.1:${DB_PORT:-5432}:5432"
@@ -140,7 +141,7 @@ services:
     environment:
       PGHOST: postgres
       PGUSER: postgres
-      PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       PGDATABASE: app
       BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-7}
     entrypoint: ["sh", "-c"]
@@ -169,7 +170,7 @@ services:
     environment:
       PGHOST: postgres
       PGUSER: postgres
-      PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       PGDATABASE: app
     command: ["psql", "-q", "-v", "ON_ERROR_STOP=1", "-v", "identity_password=identity", "-f", "/identity-sql/bootstrap.sql"]
     volumes:

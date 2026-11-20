@@ -1,6 +1,9 @@
 # go-service-template Makefile. `make help` lists targets.
 
 COMPOSE := docker compose -f deploy/compose/docker-compose.yaml
+# Local `make up` sets throwaway database passwords; the compose file itself refuses blank ones.
+export POSTGRES_PASSWORD ?= postgres
+export DB_PASSWORD ?= app
 COVERAGE_OUT := out/coverage.out
 BIN := bin/server
 SWAG := go run github.com/swaggo/swag/cmd/swag@v1.16.6

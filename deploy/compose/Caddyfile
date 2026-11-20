@@ -1,9 +1,9 @@
 {$DOMAIN:localhost} {
-	# /v1/internal is a service-to-service surface, not part of the public API.
-	# Other services reach it directly on the Compose network (api:8080); the
+	# /v1/internal and /metrics are service-to-service and scrape surfaces, not part of the public API.
+	# Other services and Prometheus reach them directly on the Compose network (api:8080); the
 	# public edge answers 404 instead of forwarding.
 	route {
-		@internal path /v1/internal*
+		@internal path /v1/internal* /metrics*
 		respond @internal 404
 		reverse_proxy {
 			# Every api replica is its own upstream, looked up in Compose DNS each
