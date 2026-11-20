@@ -78,6 +78,9 @@ jobs:
           done
       - name: Smoke test logs
         if: failure()
+        env:
+          POSTGRES_PASSWORD: ci-postgres
+          DB_PASSWORD: ci-app
         run: docker compose -f deploy/compose/docker-compose.yaml logs
       - if: github.event_name == 'push'
         uses: docker/build-push-action@v6

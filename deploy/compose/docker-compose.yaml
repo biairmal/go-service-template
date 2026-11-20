@@ -27,6 +27,7 @@ x-app: &app
       required: false
   environment:
     DB_HOST: postgres
+    DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
     TRACING_ENABLED: ${TRACING_ENABLED:-false}
     OTEL_ENDPOINT: tempo:4317
     # Auth: off unless set here or in .env. `make up-identity` turns it on
@@ -50,6 +51,7 @@ x-identity: &identity
   build: ${IDENTITY_SRC:-../../../go-identity}
   environment:
     DB_HOST: postgres
+    DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
     DB_USER: identity
     DB_PASSWORD: identity
     AUTH_ENABLED: "true"
